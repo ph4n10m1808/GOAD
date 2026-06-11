@@ -1,7 +1,39 @@
 import cmd
 import argparse
+import os
 import sys
 import time
+
+
+def bootstrap_conda():
+    """Run GOAD with this machine's conda Python when launched by system Python."""
+    if os.environ.get('GOAD_DISABLE_CONDA_BOOTSTRAP') == '1':
+        return
+    if os.environ.get('GOAD_CONDA_BOOTSTRAPPED') == '1':
+        return
+
+    conda_root = os.environ.get('GOAD_CONDA_ROOT', '/opt/miniconda3')
+    conda_env = os.environ.get('GOAD_CONDA_ENV', 'base')
+    conda_prefix = conda_root if conda_env == 'base' else os.path.join(conda_root, 'envs', conda_env)
+    conda_python = os.path.join(conda_prefix, 'bin', 'python')
+
+    current_python = os.path.realpath(sys.executable)
+    target_python = os.path.realpath(conda_python)
+    if current_python == target_python or current_python.startswith(os.path.realpath(conda_prefix) + os.sep):
+        return
+    if not os.path.exists(conda_python):
+        return
+
+    env = os.environ.copy()
+    env['GOAD_CONDA_BOOTSTRAPPED'] = '1'
+    env['CONDA_PREFIX'] = conda_prefix
+    env['CONDA_DEFAULT_ENV'] = conda_env
+    env['PATH'] = os.pathsep.join([os.path.join(conda_prefix, 'bin'), env.get('PATH', '')])
+    os.execve(conda_python, [conda_python, os.path.abspath(__file__), *sys.argv[1:]], env)
+
+
+bootstrap_conda()
+
 from goad.config import Config
 from goad.log import Log
 from goad.exceptions import JumpBoxInitFailed
@@ -459,8 +491,8 @@ def parse_args():
                                      description='Description : goad lab management console.',
                                      epilog=show_help(), formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-t", "--task", help=f"{task_help}", required=False)
-    parser.add_argument("-l", "--lab", help="lab to use (default: GOAD)", default='GOAD', required=False)
-    parser.add_argument("-p", "--provider", help="provider to use (default: vmware)", default='vmware', required=False)
+    parser.add_argument("-l", "--lab", help="lab to use (default: GOAD-Light)", default='GOAD-Light', required=False)
+    parser.add_argument("-p", "--provider", help="provider to use (default: virtualbox)", default='virtualbox', required=False)
     parser.add_argument("-ip", "--ip_range", help="ip range to use (default: 192.168.56)", default='', required=False)
     parser.add_argument("-m", "--method", help="deploy method to use (default: local)", default='local', required=False)
     parser.add_argument("-i", "--instance", help="use a specific instance (use default if not selected)", required=False)
