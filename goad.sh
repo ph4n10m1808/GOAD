@@ -1,122 +1,74 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-py=python3
-venv="$HOME/.goad/.venv"
-requirement_file="requirements.yml"
-conda_env="${GOAD_CONDA_ENV:-goad}"
-conda_python="${GOAD_CONDA_PYTHON:-3.11}"
-prefer_conda="${GOAD_PREFER_CONDA:-1}"
+conda_env_name="${GOAD_CONDA_ENV:-goad}"
+python_version="${GOAD_PYTHON_VERSION:-3.11}"
+pip_requirements="requirements_311.yml"
+ansible_requirements="ansible/requirements_311.yml"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-cd "$script_dir" || exit 1
+# Use /mnt/ssd_data for vagrant data (boxes, etc.)
+export VAGRANT_HOME=/mnt/SSD_DATA/.vagrant.d
 
-find_conda() {
-  if command -v conda >/dev/null 2>&1; then
-    command -v conda
-    return 0
-  fi
+cd "$script_dir"
 
-  for candidate in "$HOME/miniconda3/bin/conda" "$HOME/anaconda3/bin/conda" "/opt/miniconda3/bin/conda" "/opt/anaconda3/bin/conda"; do
-    if [ -x "$candidate" ]; then
-      echo "$candidate"
-      return 0
-    fi
-  done
+if ! command -v conda >/dev/null 2>&1; then
+  echo "[-] conda not found in PATH. Please install Miniconda/Anaconda first."
+  exit 1
+fi
 
-  return 1
-}
-
-select_requirement_file() {
-  local python_cmd="$1"
-  local version
-  local version_numeric
-
-  version=$("$python_cmd" --version 2>&1 | awk '{print $2}')
-  echo "Python version in use : $version"
-  version_numeric=$(echo "$version" | awk -F. '{printf "%d%02d%02d\n", $1, $2, $3}')
-
-  if [ "$version_numeric" -ge 30800 ]; then
-      echo 'python version >= 3.8 ok'
-      if [ "$version_numeric" -lt 31100 ]; then
-        requirement_file="requirements.yml"
-      else
-        requirement_file="requirements_311.yml"
-      fi
-  else
-      echo "Python version is < 3.8 please update python before install"
-      exit 1
-  fi
-}
-
-install_goad_requirements() {
-  "$py" -m pip install --upgrade pip
-  export SETUPTOOLS_USE_DISTUTILS=stdlib
-  "$py" -m pip install -r "$requirement_file"
-  cd ansible || exit 1
-  ansible-galaxy install -r "$requirement_file"
-  cd - >/dev/null || exit 1
-}
-
-conda_bin=$(find_conda || true)
-if [ "$prefer_conda" != "0" ] && [ "$GOAD_USE_VENV" != "1" ] && [ -n "$conda_bin" ]; then
-  conda_base=$("$conda_bin" info --base 2>/dev/null || true)
-  if [ -n "$conda_base" ] && [ -f "$conda_base/etc/profile.d/conda.sh" ]; then
+if conda_setup="$(conda shell.bash hook 2>/dev/null)"; then
+  eval "$conda_setup"
+else
+  conda_base="$(conda info --base)"
+  if [ -f "$conda_base/etc/profile.d/conda.sh" ]; then
+    # shellcheck disable=SC1090
     source "$conda_base/etc/profile.d/conda.sh"
   else
-    eval "$("$conda_bin" shell.bash hook)"
-  fi
-
-  mkdir -p "$HOME/.goad"
-  if ! conda env list | awk '{print $1}' | grep -qx "$conda_env"; then
-    echo "[+] conda env '$conda_env' not found, creating it with python $conda_python"
-    conda create -y -n "$conda_env" "python=$conda_python" pip
-  fi
-
-  conda activate "$conda_env" || exit 1
-  py=python
-  select_requirement_file "$py"
-
-  conda_marker="$HOME/.goad/.conda_${conda_env}_installed"
-  if [ ! -f "$conda_marker" ]; then
-    echo "[+] installing GOAD requirements in conda env '$conda_env'"
-    install_goad_requirements
-    touch "$conda_marker"
-  fi
-
-  "$py" goad.py "$@"
-  goad_exit=$?
-  conda deactivate
-  exit $goad_exit
-fi
-
-if [ ! -d "$venv" ]
-then
-  # Get the Python version (removes 'Python' from output)
-  select_requirement_file "$py"
-
-  if [ "$("$py" -m venv -h 2>/dev/null | grep -i 'usage:')" ]; then
-    echo "venv module is installed. continue"
-  else
-    echo "venv module is not installed."
-    echo "please install $py-venv according to your system"
-    echo "exit"
-    exit 0
-  fi
-
-  echo '[+] venv not found, start python venv creation'
-  mkdir -p ~/.goad
-  "$py" -m venv "$venv"
-  source "$venv/bin/activate"
-  if [ $? -eq 0 ]; then
-    install_goad_requirements
-  else
-    echo "Error in venv creation"
-    rm -rf $venv
-    exit 0
+    echo "[-] unable to initialize conda shell integration"
+    exit 1
   fi
 fi
 
-# launch the app
-source "$venv/bin/activate"
-"$py" goad.py "$@"
-deactivate
+conda_env_exists() {
+  conda env list | awk 'NF && $1 !~ /^#/ {print $1}' | grep -Fxq "$conda_env_name"
+}
+
+install_dependencies() {
+  if [ ! -f "$pip_requirements" ]; then
+    echo "[-] missing pip requirements file: $pip_requirements"
+    exit 1
+  fi
+  if [ ! -f "$ansible_requirements" ]; then
+    echo "[-] missing Ansible requirements file: $ansible_requirements"
+    exit 1
+  fi
+
+  echo "[+] installing Python requirements from $pip_requirements"
+  python -m pip install --upgrade pip
+  python -m pip install -r "$pip_requirements"
+
+  echo "[+] installing Ansible collections from $ansible_requirements"
+  ansible-galaxy install -r "$ansible_requirements"
+}
+
+if conda_env_exists; then
+  echo "[+] conda env '$conda_env_name' found"
+else
+  echo "[+] conda env '$conda_env_name' not found, creating it with Python $python_version"
+  conda create -y -n "$conda_env_name" "python=$python_version"
+  conda activate "$conda_env_name"
+  install_dependencies
+fi
+
+if [ "${CONDA_DEFAULT_ENV:-}" != "$conda_env_name" ]; then
+  conda activate "$conda_env_name"
+fi
+
+set +e
+python goad.py "$@"
+status=$?
+set -e
+
+conda deactivate >/dev/null 2>&1 || true
+exit "$status"

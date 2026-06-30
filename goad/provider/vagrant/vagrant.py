@@ -18,7 +18,7 @@ class VagrantProvider(Provider):
         return all(checks)
 
     def install(self):
-        return self.command.run_vagrant(['up'], self.path)
+        return self.command.run_vagrant(['up', '--parallel'], self.path)
 
     def destroy(self):
         return self.command.run_vagrant(['destroy'], self.path)
