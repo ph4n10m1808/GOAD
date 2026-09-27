@@ -25,6 +25,11 @@ ansible/edr.yml
 ansible/private_data_dir/artifacts/
 .vscode
 ad/MINILAB
+!ad/MINILAB/
+!ad/MINILAB/providers/
+!ad/MINILAB/providers/libvirt/
+!ad/MINILAB/providers/libvirt/Vagrantfile
+!ad/MINILAB/providers/libvirt/inventory
 ad/*/providers/*/ssh_keys/*id_rsa*
 ad/*/providers/*/ssh_keys/*.pub
 ad/*/providers/*/extensions/*.rb
@@ -38,4 +43,7 @@ docs/site/
 docs/olddocs/
 docs/mkdocs/site/
 scripts/archives/
+extensions/splunk_uf/.env
 tests/
+!tests/
+!tests/test_libvirt_provider.py
