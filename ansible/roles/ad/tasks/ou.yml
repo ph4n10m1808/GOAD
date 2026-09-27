@@ -1,6 +1,25 @@
 - name: "Create OU"
-  win_dsc:
-    resource_name: ADOrganizationalUnit
-    name: "{{ item.key }}"
-    path:  "{{ item.value.path }}"
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param (
+          [String]
+          $Name,
+
+          [String]
+          $Path
+      )
+
+      $organizationalUnit = Get-ADOrganizationalUnit -Filter * -SearchBase $Path -SearchScope OneLevel |
+          Where-Object { $_.Name -eq $Name }
+
+      if ($null -ne $organizationalUnit) {
+          $Ansible.Changed = $false
+      } else {
+          New-ADOrganizationalUnit -Name $Name -Path $Path
+          $Ansible.Changed = $true
+      }
+    parameters:
+      Name: "{{ item.key }}"
+      Path: "{{ item.value.path }}"
   with_dict: "{{ad_ou}}"

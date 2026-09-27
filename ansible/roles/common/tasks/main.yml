@@ -1,3 +1,47 @@
+- name: Windows | Set Vietnam timezone
+  community.windows.win_timezone:
+    timezone: SE Asia Standard Time
+
+- name: Windows | Ensure Windows Time service is enabled
+  ansible.windows.win_service:
+    name: W32Time
+    start_mode: auto
+    state: started
+
+- name: Windows | Prefer the private adapter over the NAT adapter
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param (
+          [String] $PrivateAdapter,
+          [String] $NatAdapter,
+          [Int32] $PrivateMetric,
+          [Int32] $NatMetric
+      )
+
+      $changed = $false
+      $private = Get-NetIPInterface -InterfaceAlias $PrivateAdapter -AddressFamily IPv4 -ErrorAction Stop
+      if ($private.InterfaceMetric -ne $PrivateMetric -or $private.AutomaticMetric -ne 'Disabled') {
+          Set-NetIPInterface -InterfaceAlias $PrivateAdapter -AddressFamily IPv4 `
+              -AutomaticMetric Disabled -InterfaceMetric $PrivateMetric
+          $changed = $true
+      }
+
+      $nat = Get-NetIPInterface -InterfaceAlias $NatAdapter -AddressFamily IPv4 -ErrorAction Stop
+      if ($nat.InterfaceMetric -ne $NatMetric -or $nat.AutomaticMetric -ne 'Disabled') {
+          Set-NetIPInterface -InterfaceAlias $NatAdapter -AddressFamily IPv4 `
+              -AutomaticMetric Disabled -InterfaceMetric $NatMetric
+          $changed = $true
+      }
+
+      $Ansible.Changed = $changed
+    parameters:
+      PrivateAdapter: "{{ domain_adapter }}"
+      NatAdapter: "{{ nat_adapter }}"
+      PrivateMetric: 10
+      NatMetric: 100
+  when: two_adapters
+
 - name: "Force a DNS on the adapter {{nat_adapter}}"
   ansible.windows.win_dns_client:
     adapter_names: "{{nat_adapter}}"

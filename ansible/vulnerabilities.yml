@@ -5,6 +5,15 @@
     data_path: "../ad/{{domain_name}}/data/"
   tags: 'data'
 
+- name: Validate member domain trust before privileged vulnerability tasks
+  hosts: server:workstation
+  roles:
+    - role: domain_secure_channel
+  vars:
+    member_domain: "{{ lab.hosts[dict_key].domain }}"
+    domain_username: "{{ admin_user }}@{{ member_domain }}"
+    domain_password: "{{ lab.domains[member_domain].domain_password }}"
+
 - name: "Setup vulnerabilities with tasks"
   hosts: domain
   tasks:

@@ -1,9 +1,3 @@
-# DNSCHANGE
-- name: "prioritize the {{domain_adapter}} interface (local) as the default for routing"
-  ansible.windows.win_shell:
-    Set-NetIPInterface -InterfaceAlias "{{domain_adapter}}" -InterfaceMetric 10
-  when: two_adapters
-
 - name: "Set configure dns to {{dns_domain}}"
   win_dns_client:
     adapter_names: "{{domain_adapter}}"
@@ -11,11 +5,91 @@
     - "{{hostvars[dns_domain].ansible_host}}"
     log_path: C:\dns_log.txt
 
+- name: Wait for the domain controller DNS service
+  ansible.windows.win_wait_for:
+    host: "{{ hostvars[dns_domain].ansible_host }}"
+    port: 53
+    timeout: 300
+
+- name: Verify that the member domain resolves through the domain controller
+  ansible.windows.win_shell: >-
+    Resolve-DnsName -Name "{{ member_domain }}"
+    -Type SOA -Server "{{ hostvars[dns_domain].ansible_host }}"
+  register: domain_dns_resolution
+  changed_when: false
+  until: domain_dns_resolution.rc == 0
+  retries: 30
+  delay: 10
+
 - name: Verify File Server Role is installed.
   win_feature:
     name: File-Services, FS-FileServer
     state: present
     include_management_tools: True
+
+- name: Repair an existing broken domain secure channel
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param (
+          [String] $DomainName,
+          [String] $DomainController,
+          [String] $DomainUser,
+          [SecureString] $DomainPassword
+      )
+
+      $computerSystem = Get-CimInstance Win32_ComputerSystem
+      if (-not $computerSystem.PartOfDomain -or $computerSystem.Domain -ne $DomainName) {
+          $Ansible.Changed = $false
+          return
+      }
+
+      if (Test-ComputerSecureChannel -Server $DomainController -ErrorAction SilentlyContinue) {
+          $Ansible.Changed = $false
+          return
+      }
+
+      $credential = New-Object System.Management.Automation.PSCredential(
+          $DomainUser,
+          $DomainPassword
+      )
+      $repaired = $false
+      try {
+          $repaired = Test-ComputerSecureChannel `
+              -Server $DomainController `
+              -Credential $credential `
+              -Repair `
+              -ErrorAction Stop
+      } catch {}
+
+      if (-not $repaired) {
+          # Reset against the DC name so Netlogon/Kerberos can authenticate it.
+          Reset-ComputerMachinePassword `
+              -Server $DomainController `
+              -Credential $credential `
+              -ErrorAction Stop
+          $repaired = $true
+      }
+
+      if (-not $repaired) {
+          throw "Failed to repair the secure channel to $DomainName through $DomainController"
+      }
+
+      $Ansible.Changed = $true
+    parameters:
+      DomainName: "{{ member_domain }}"
+      DomainController: "{{ lab.hosts[dns_domain].hostname }}.{{ member_domain }}"
+      DomainUser: "{{ domain_username }}"
+    sensitive_parameters:
+      - name: DomainPassword
+        value: "{{ domain_password }}"
+  register: secure_channel_repair
+
+- name: Reboot after repairing the domain secure channel
+  ansible.windows.win_reboot:
+    reboot_timeout: 1500
+    post_reboot_delay: 30
+  when: secure_channel_repair.changed
 
 - name: "Add member server"
   win_domain_membership:
@@ -25,10 +99,12 @@
 #    domain_ou_path: "{{member_domain_ou_path}}"
     state: domain
   register: domain_state
+  until: domain_state is not failed
+  retries: 3
+  delay: 20
 
 - name: Reboot if needed
   win_reboot:
     reboot_timeout: 1500
     post_reboot_delay: 100
   when: domain_state.reboot_required
-

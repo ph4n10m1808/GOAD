@@ -43,35 +43,115 @@
 #   retries: 3
 #   delay: 120
 
-- name: Be sure DNS feature is installed
-  win_feature:
+- name: Be sure DNS feature and management tools are installed
+  ansible.windows.win_feature:
     name: DNS
     state: present
+    include_management_tools: true
 
-- name: Check for xDnsServer Powershell module
-  win_psmodule:
-    name: xDnsServer
-    state: present
+- name: Enable only the {{domain_adapter}} interface (local) for DNS client requests
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param (
+          [String]
+          $IPAddress
+      )
 
-- name: enable only the {{domain_adapter}} interface (local) for DNS client requests
-  ansible.windows.win_shell: dnscmd . /resetlistenaddresses {{ hostvars[dict_key].ansible_host }}
+      $settings = Get-DnsServerSetting -All
+      $listenAddresses = @($settings.ListeningIPAddress | ForEach-Object { $_.ToString() })
+
+      if ($listenAddresses.Count -eq 1 -and $listenAddresses[0] -eq $IPAddress) {
+          $Ansible.Changed = $false
+      } else {
+          $settings.ListeningIPAddress = @($IPAddress)
+          Set-DnsServerSetting -InputObject $settings -Force
+          $Ansible.Changed = $true
+      }
+    parameters:
+      IPAddress: "{{ hostvars[dict_key].ansible_host }}"
   when: two_adapters
 
+- name: Configure the domain controller to use its private DNS service
+  ansible.windows.win_dns_client:
+    # Windows may send DC Locator queries through any connected adapter when
+    # interface metrics tie. Keep the libvirt NAT adapter on AD DNS too; the
+    # DNS server forwarder still provides Internet resolution.
+    adapter_names: "{{ [domain_adapter, nat_adapter] | unique | list }}"
+    dns_servers:
+      - "{{ hostvars[dict_key].ansible_host }}"
+
+- name: Ensure Active Directory services are running before DNS registration
+  ansible.windows.win_service:
+    name: "{{ item }}"
+    state: started
+    start_mode: auto
+  loop:
+    - NTDS
+    - DNS
+    - ADWS
+    - Netlogon
+
+- name: Restart Netlogon to publish the domain controller locator records
+  ansible.windows.win_service:
+    name: Netlogon
+    state: restarted
+
+- name: Register the domain controller DNS records
+  ansible.windows.win_command: nltest.exe /dsregdns
+  register: dc_dns_registration
+  changed_when: false
+  until: dc_dns_registration.rc == 0
+  retries: 12
+  delay: 10
+
+- name: Refresh the domain controller host record
+  ansible.windows.win_command: ipconfig.exe /registerdns
+  changed_when: false
+
+- name: Verify the domain controller locator SRV record
+  ansible.windows.win_shell: >-
+    Resolve-DnsName -Name "_ldap._tcp.dc._msdcs.{{ domain }}"
+    -Type SRV -Server "{{ hostvars[dict_key].ansible_host }}" -ErrorAction Stop
+  register: dc_locator_dns
+  changed_when: false
+  until: dc_locator_dns.rc == 0
+  retries: 30
+  delay: 10
+
+- name: Verify the domain controller can locate its own domain
+  ansible.windows.win_command: nltest.exe /dsgetdc:{{ domain }} /force
+  register: dc_locator_health
+  changed_when: false
+  until: dc_locator_health.rc == 0
+  retries: 12
+  delay: 10
+
 - name: Configure DNS Forwarders
-  win_dsc:
-    resource_name: xDnsServerForwarder
-    IsSingleInstance: "yes"
-    UseRootHint: false
-    IPAddresses:
-      - "{{dns_server_forwarder}}"
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param (
+          [String]
+          $IPAddress
+      )
+
+      $forwarder = Get-DnsServerForwarder
+      $forwarderAddresses = @($forwarder.IPAddress | ForEach-Object { $_.ToString() })
+
+      if ($forwarderAddresses.Count -eq 1 -and
+          $forwarderAddresses[0] -eq $IPAddress -and
+          $forwarder.UseRootHint -eq $false) {
+          $Ansible.Changed = $false
+      } else {
+          Set-DnsServerForwarder -IPAddress @($IPAddress) -UseRootHint $false
+          $Ansible.Changed = $true
+      }
+    parameters:
+      IPAddress: "{{ dns_server_forwarder }}"
 
 #- name: install nuget
 #  win_shell: install-packageprovider -name nuget -force
-
-- name: "Install XactiveDirectory"
-  win_psmodule:
-    name: ActiveDirectoryDSC
-    state: present
 
 - name: Ensure Administrator is part of Enterprise Admins
   win_domain_group_membership:
