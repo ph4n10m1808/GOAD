@@ -33,7 +33,7 @@ boxes.append(
     config.vbguest.auto_update = false
   end
 
-  config.vm.boot_timeout = 600
+  config.vm.boot_timeout = 1200
   config.vm.graceful_halt_timeout = 600
   config.winrm.retry_limit = 30
   config.winrm.retry_delay = 10
@@ -62,6 +62,10 @@ boxes.append(
       if box[:os] == "windows"
         target.vm.guest = :windows
         target.vm.communicator = "winrm"
+        target.vm.provision :shell,
+          :path => "../../../vagrant/Configure-TimeZone.ps1",
+          privileged: false,
+          run: "always"
         target.vm.provision :shell, :path => "../../../vagrant/Install-WMF3Hotfix.ps1", privileged: false
         target.vm.provision :shell, :path => "../../../vagrant/ConfigureRemotingForAnsible.ps1", privileged: false
 

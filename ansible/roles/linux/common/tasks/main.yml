@@ -23,22 +23,12 @@
     - nano
     - rsync
 
-# ######################################
-# # Time management
-# ######################################
-# - name: Set local timezone
-#   copy: content={{ timezone }}
-#         dest=/etc/timezone
-# 
-# - name: Reconfigure tzdata
-#   command: dpkg-reconfigure -f noninteractive tzdata
-# 
-# - name: Install NTP (and update apt cache for the first install)
-#   apt: name=ntp state=present
-#         update_cache=yes
-# 
-# - name: Start the ntp service
-#   service: name=ntp state=started enabled=true
+######################################
+# Time management
+######################################
+- name: Set local timezone
+  ansible.builtin.timezone:
+    name: Asia/Ho_Chi_Minh
 
 ######################################
 # Copy system files

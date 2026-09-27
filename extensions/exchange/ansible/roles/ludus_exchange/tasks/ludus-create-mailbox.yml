@@ -32,7 +32,7 @@
     $users = Get-Mailbox -ResultSize Unlimited
     foreach ($user in $users) {
       try {
-        Set-MailboxRegionalConfiguration -Identity $user.Alias -Language en-US -TimeZone "Romance Standard Time"
+        Set-MailboxRegionalConfiguration -Identity $user.Alias -Language en-US -TimeZone "SE Asia Standard Time"
       } catch {
         Write-Host "error during MailboxRegionalConfiguration"
       }

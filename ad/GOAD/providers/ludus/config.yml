@@ -5,7 +5,7 @@ ludus:
     vlan: 10
     ip_last_octet: 10
     ram_gb: 4
-    cpus: 2
+    cpus: 3
     windows:
       sysprep: true
   - vm_name: "{{ range_id }}-GOAD-DC02"
@@ -14,7 +14,7 @@ ludus:
     vlan: 10
     ip_last_octet: 11
     ram_gb: 4
-    cpus: 2
+    cpus: 3
     windows:
       sysprep: true
   - vm_name: "{{ range_id }}-GOAD-DC03"
@@ -23,7 +23,7 @@ ludus:
     vlan: 10
     ip_last_octet: 12
     ram_gb: 4
-    cpus: 2
+    cpus: 3
     windows:
       sysprep: true
   - vm_name: "{{ range_id }}-GOAD-SRV02"
@@ -32,7 +32,7 @@ ludus:
     vlan: 10
     ip_last_octet: 22
     ram_gb: 4
-    cpus: 2
+    cpus: 3
     windows:
       sysprep: true
   - vm_name: "{{ range_id }}-GOAD-SRV03"
@@ -41,6 +41,6 @@ ludus:
     vlan: 10
     ip_last_octet: 23
     ram_gb: 4
-    cpus: 2
+    cpus: 3
     windows:
       sysprep: true
