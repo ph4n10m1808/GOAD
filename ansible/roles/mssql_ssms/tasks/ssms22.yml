@@ -1,0 +1,117 @@
+- name: Check registered SSMS installation
+  ansible.builtin.include_tasks: installation_state.yml
+
+- name: Record whether SSMS installation is needed
+  ansible.builtin.set_fact:
+    ssms_install_needed: '{{ not ssms_state.result.complete }}'
+
+- name: Install and verify SSMS
+  when: ssms_install_needed
+  block:
+    - name: Download the current SSMS bootstrapper
+      ansible.windows.win_get_url:
+        url: 'https://aka.ms/ssmsfullsetup'
+        dest: 'c:\setup\mssql\SSMS_installer.exe'
+        force: true
+      register: ssms_installer_download
+      retries: 3
+      delay: 15
+      until: ssms_installer_download is succeeded
+
+    # Capture the exit code, then verify the registered product. In particular,
+    # 0xC00000FD can occur after installation has already completed.
+    - name: Run the SSMS bootstrapper
+      # Installers may require APIs and resources unavailable in a WinRM logon.
+      # Use the connection identity in a separate Windows logon session.
+      become: true
+      become_method: runas
+      become_user: '{{ ansible_user }}'
+      vars:
+        ansible_become_password: '{{ ansible_password }}'
+      ansible.windows.win_command:
+        argv:
+          - 'c:\setup\mssql\SSMS_installer.exe'
+          - --quiet
+          - --norestart
+          - --wait
+          - --installPath
+          - 'C:\Program Files\Microsoft SQL Server Management Studio 22\Release'
+      register: install_ssms
+      # Preserve launch / become failures instead of masking them as installer exits.
+      failed_when: install_ssms.rc is not defined
+      changed_when: install_ssms.rc | default(-1) in [0, 3010]
+
+    - name: Verify SSMS registration after bootstrapper exit
+      ansible.builtin.include_tasks: installation_state.yml
+
+    - name: Complete a successful SSMS install that requires a reboot
+      ansible.windows.win_reboot:
+        reboot_timeout: 900
+      register: ssms_post_install_reboot
+      when:
+        - install_ssms.rc | default(-1) in [0, 3010]
+        - ssms_state.result.reboot_required or (install_ssms.rc | default(-1)) == 3010
+
+    - name: Verify SSMS registration after required reboot
+      ansible.builtin.include_tasks: installation_state.yml
+      when: ssms_post_install_reboot is changed
+
+    - name: Report a verified installation despite bootstrapper crash
+      ansible.builtin.debug:
+        msg: 'SSMS is complete and launchable; bootstrapper exited with 0xC00000FD after installation. No reinstall is needed.'
+      changed_when: true
+      when:
+        - install_ssms.rc | default(-1) in [-1073741571, 3221225725]
+        - ssms_state.result.complete
+
+    # Temporarily disable SSMS diagnostic collection, archiving and download.
+    # - name: Preserve full diagnostics for an unverified SSMS install
+    #   ansible.windows.win_powershell:
+    #     script: "{{ lookup('file', role_path + '/files/Collect-SsmsDiagnostics.ps1') }}"
+    #   register: ssms_diagnostic_bundle
+    #   failed_when: false
+    #   when: not ssms_state.result.complete or (install_ssms.rc | default(-1)) not in [0, 3010, -1073741571, 3221225725]
+    #
+    # - name: Fetch SSMS diagnostics to the controller
+    #   ansible.builtin.fetch:
+    #     src: '{{ ssms_diagnostic_bundle.result.archive }}'
+    #     dest: '{{ playbook_dir }}/../workspace/ssms-diagnostics/{{ inventory_hostname }}/'
+    #     flat: true
+    #   failed_when: false
+    #   when: (ssms_diagnostic_bundle.result | default({})).archive is defined
+    #
+    # - name: Collect diagnostics for an unverified SSMS install
+    #   ansible.windows.win_shell: |
+    #     $logs = Get-ChildItem -Path $env:TEMP -Filter 'dd_*' -File -ErrorAction SilentlyContinue |
+    #       Sort-Object LastWriteTime -Descending | Select-Object -First 4
+    #     foreach ($log in $logs) {
+    #       Write-Output "===== $($log.FullName) ====="
+    #       Get-Content -LiteralPath $log.FullName -Tail 80
+    #     }
+    #   register: ssms_install_diagnostics
+    #   changed_when: false
+    #   when: not ssms_state.result.complete or (install_ssms.rc | default(-1)) not in [0, 3010, -1073741571, 3221225725]
+
+    - name: Require a complete SSMS installation and a recognized exit code
+      ansible.builtin.assert:
+        that:
+          - ssms_state.result.complete
+          - install_ssms.rc | default(-1) in [0, 3010, -1073741571, 3221225725]
+        fail_msg: |-
+          SSMS installation failed verification (rc={{ install_ssms.rc | default('unavailable') }}).
+
+- name: Reboot when the SSMS installer requires it
+  ansible.windows.win_reboot:
+    reboot_timeout: 900
+  when:
+    - ssms_state.result.reboot_required or (install_ssms.rc | default(0)) == 3010
+    - not (ssms_post_install_reboot | default({})).get('changed', false)
+
+- name: Verify final SSMS installation state
+  ansible.builtin.include_tasks: installation_state.yml
+
+- name: Require SSMS to be complete and launchable
+  ansible.builtin.assert:
+    that:
+      - ssms_state.result.complete
+    fail_msg: 'SSMS registration is incomplete or its executable is missing.'

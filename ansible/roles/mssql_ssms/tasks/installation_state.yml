@@ -1,0 +1,22 @@
+- name: Query SSMS product registration with vswhere
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $Ansible.Result = @{ complete = $false; reboot_required = $false }
+      $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+      $installPath = 'C:\Program Files\Microsoft SQL Server Management Studio 22\Release'
+      if (-not (Test-Path -LiteralPath $vswhere)) { return }
+      $json = & $vswhere -all -products Microsoft.VisualStudio.Product.Ssms -format json -utf8
+      if ($LASTEXITCODE -ne 0) { throw "vswhere failed with exit code $LASTEXITCODE" }
+      $instances = ($json -join "`n") | ConvertFrom-Json
+      $instance = $instances | Where-Object {
+          $_.installationPath.TrimEnd('\') -ieq $installPath
+      } | Select-Object -First 1
+      if ($null -eq $instance) { return }
+      $Ansible.Result = @{
+          complete = ($instance.isComplete -eq $true -and
+              $instance.isLaunchable -eq $true -and
+              (Test-Path -LiteralPath "$installPath\Common7\IDE\Ssms.exe"))
+          reboot_required = ($instance.isRebootRequired -eq $true)
+      }
+  register: ssms_state

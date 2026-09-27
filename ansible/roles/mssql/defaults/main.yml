@@ -8,6 +8,9 @@ sql_version: MSSQL_2019
 
 # SQL2019-SSEI-Expr.exe
 download_url_2019: https://download.microsoft.com/download/7/f/8/7f8a9c43-8c8a-4f7c-9f92-83c18d96b681/SQL2019-SSEI-Expr.exe
+# Offline Advanced media includes the FULLTEXT feature and avoids the retired SSEI bootstrap.
+download_url_2019_offline: https://download.microsoft.com/download/7/c/1/7c14e92e-bdcb-4f89-b7cf-93543e7112d1/SQLEXPRADV_x64_ENU.exe
+mssql_install_timeout_seconds: 3600
 # SQL2022-SSEI-Eval.exe
 download_url_2022: https://go.microsoft.com/fwlink/?linkid=2215202&clcid=0x409&culture=en-us&country=us
 

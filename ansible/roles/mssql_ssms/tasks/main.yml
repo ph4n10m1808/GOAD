@@ -1,3 +1,8 @@
+- name: Ensure SSMS setup directory exists
+  ansible.windows.win_file:
+    path: 'C:\setup\mssql'
+    state: directory
+
 - name: check .NET Framework 4.8 release
   win_reg_stat:
     path: 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full'
@@ -56,48 +61,5 @@
     reboot_timeout: 600
   when: ssms_pending_reboot.stdout | trim == 'True'
 
-- name: check SQL Server Management Studio installer exists
-  win_stat:
-    path: 'c:\setup\mssql\SSMS_installer.exe'
-  register: ssms_installer_file
-
-- name: get SQL Server Management Studio installer
-  win_get_url:
-    url: 'https://aka.ms/ssmsfullsetup'
-    dest: 'c:\setup\mssql\SSMS_installer.exe'
-  when: not ssms_installer_file.stat.exists
-
-- name: check SSMS installation already done
-  win_stat:
-    path: 'C:\Program Files\Microsoft SQL Server Management Studio 22\Release\Common7\IDE\Ssms.exe'
-  register: ssms_installation
-
-- name: install SSMS
-  win_command: >-
-    c:\setup\mssql\SSMS_installer.exe
-    --quiet
-    --norestart
-    --wait
-    --installPath "C:\Program Files\Microsoft SQL Server Management Studio 22\Release"
-  register: install_ssms
-  failed_when: install_ssms.rc not in [0, 3010]
-  changed_when: install_ssms.rc in [0, 3010]
-  when: not ssms_installation.stat.exists
-
-- name: reboot after SSMS install
-  win_reboot:
-    reboot_timeout: 600
-  when: not ssms_installation.stat.exists
-
-- name: check SSMS installation after install
-  win_stat:
-    path: 'C:\Program Files\Microsoft SQL Server Management Studio 22\Release\Common7\IDE\Ssms.exe'
-  register: ssms_installation_after
-  when: not ssms_installation.stat.exists
-
-- name: fail if SSMS installation did not complete
-  fail:
-    msg: 'SSMS installer finished, but Ssms.exe was not found. Check dd_installer and dd_setup logs in the remote user TEMP directory.'
-  when:
-    - not ssms_installation.stat.exists
-    - not ssms_installation_after.stat.exists
+- name: Install SSMS 22
+  ansible.builtin.include_tasks: ssms22.yml
