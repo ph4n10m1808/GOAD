@@ -93,6 +93,10 @@ class Ansible(Provisioner):
             inventory.append(global_inventory)
 
         playbook = extension.get_playbook(install)
+        if extension.name == 'elastic_agent':
+            options = os.path.join(self.instance_path, 'elastic_agent_options.yml')
+            if os.path.isfile(options):
+                inventory.append(options)
         extension_ansible_path = extension.get_ansible_path()
 
         provision_result = self.run_playbook(playbook, inventory, playbook_path=extension_ansible_path)

@@ -37,7 +37,7 @@ def print_menu(lab_manager, advanced=True, debug=False):
         print_menu_entry('status', 'show current status')
         print_menu_entry('start', 'start lab')
         print_menu_entry('stop', 'stop lab')
-        print_menu_entry('destroy', 'destroy lab')
+        print_menu_entry('destroy', 'destroy lab and delete its workspace instance')
         if lab_manager.get_current_instance().is_vagrant():
             print_menu_entry('snapshot', 'snapshot lab')
             print_menu_entry('reset', 'revert lab to last snapshot')

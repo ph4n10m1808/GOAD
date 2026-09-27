@@ -7,6 +7,7 @@ from goad.log import Log
 from goad.exceptions import JumpBoxInitFailed
 from goad.menu import print_menu, print_logo
 from goad.infos import *
+from goad.utils import Utils
 
 
 class Goad(cmd.Cmd):
@@ -57,59 +58,68 @@ class Goad(cmd.Cmd):
 
     # main commands
     def do_check(self, arg=''):
-        self.lab_manager.check()
+        return self.lab_manager.check()
 
     def do_status(self, arg=''):
         if self.lab_manager.get_current_instance():
-            self.lab_manager.get_current_instance().provider.status()
+            return self.lab_manager.get_current_instance().provider.status()
+        return False
 
     def do_install(self, arg=''):
-        self.do_create()
+        return self.do_create()
 
     def do_start(self, arg=''):
         if self.lab_manager.get_current_instance_provider():
-            self.lab_manager.get_current_instance_provider().start()
+            return self.lab_manager.get_current_instance_provider().start()
+        return False
 
     def do_start_vm(self, arg):
         if arg == '':
             Log.error('missing virtual machine name')
             Log.info('start_vm <vm>')
+            return False
         else:
-            self.lab_manager.get_current_instance_provider().start_vm(arg)
+            return self.lab_manager.get_current_instance_provider().start_vm(arg)
 
     def do_stop(self, arg=''):
         if self.lab_manager.get_current_instance_provider():
-            self.lab_manager.get_current_instance_provider().stop()
+            return self.lab_manager.get_current_instance_provider().stop()
+        return False
 
     def do_stop_vm(self, arg):
         if arg == '':
             Log.error('missing virtual machine name')
             Log.info('stop_vm <vm>')
+            return False
         else:
-            self.lab_manager.get_current_instance_provider().stop_vm(arg)
+            return self.lab_manager.get_current_instance_provider().stop_vm(arg)
 
     def do_destroy(self, arg=''):
-        if self.lab_manager.get_current_instance_provider():
-            self.lab_manager.get_current_instance_provider().destroy()
+        return self.do_delete(arg)
 
     def do_destroy_vm(self, arg):
         if arg == '':
             Log.error('missing virtual machine name')
             Log.info('destroy_vm <vm>')
+            return False
         else:
-            self.lab_manager.get_current_instance_provider().destroy_vm(arg)
+            return self.lab_manager.get_current_instance_provider().destroy_vm(arg)
 
     def do_snapshot(self, arg=''):
-        self.do_stop()
-        if self.lab_manager.get_current_instance_provider():
-            self.lab_manager.get_current_instance_provider().snapshot()
-        self.do_start()
+        provider = self.lab_manager.get_current_instance_provider()
+        if provider is None or self.do_stop() is False:
+            return False
+        if provider.snapshot() is False:
+            return False
+        return self.do_start()
     
     def do_reset(self, arg=''):
-        self.do_stop()
-        if self.lab_manager.get_current_instance_provider():
-            self.lab_manager.get_current_instance_provider().reset()
-        self.do_start()
+        provider = self.lab_manager.get_current_instance_provider()
+        if provider is None or self.do_stop() is False:
+            return False
+        if provider.reset() is False:
+            return False
+        return self.do_start()
 
     def do_provide(self, arg=''):
         result = self.lab_manager.get_current_instance_provider().install()
@@ -127,6 +137,7 @@ class Goad(cmd.Cmd):
                     instance_id = self.lab_manager.get_current_instance_id()
                     self.do_load(instance_id)
                     self.refresh_prompt()
+        return result
 
     def do_provision(self, arg):
         if arg == '':
@@ -135,16 +146,18 @@ class Goad(cmd.Cmd):
         else:
             start = time.time()
             # run playbook
-            self.lab_manager.get_current_instance_provisioner().run(arg)
-            time_provision = time.ctime(time.time() - start)[11:19]
+            provision_result = self.lab_manager.get_current_instance_provisioner().run(arg)
+            time_provision = Utils.format_elapsed_time(time.time() - start)
             Log.info(f'Provisioned with {arg} in {time_provision}')
+            return provision_result
+        return False
 
     def do_provision_lab(self, arg=''):
         start = time.time()
         provision_result = self.lab_manager.get_current_instance_provisioner().run()
         if provision_result:
             self.lab_manager.get_current_instance().set_status(READY)
-            time_provision = time.ctime(time.time() - start)[11:19]
+            time_provision = Utils.format_elapsed_time(time.time() - start)
             Log.info(f'Lab successfully provisioned in {time_provision}')
         return provision_result
 
@@ -153,8 +166,9 @@ class Goad(cmd.Cmd):
         provision_result = self.lab_manager.get_current_instance_provisioner().run_from(arg)
         if provision_result:
             self.lab_manager.get_current_instance().set_status(READY)
-            time_provision = time.ctime(time.time() - start)[11:19]
+            time_provision = Utils.format_elapsed_time(time.time() - start)
             Log.info(f'Provisioned from {arg} in {time_provision}')
+        return provision_result
 
     def do_sync_source_jumpbox(self, arg=''):
         if self.lab_manager.get_current_instance_provisioner().use_jumpbox:
@@ -289,43 +303,80 @@ class Goad(cmd.Cmd):
             self.lab_manager.get_lab(self.lab_manager.get_current_lab_name()).show_extensions()
 
     def do_install_extension(self, arg):
-        if arg == '':
+        """Install an extension. Elastic: elastic_agent [--ip HOST] [--token TOKEN] [--crt PATH] [--version VERSION]."""
+        if not arg.strip():
             Log.error('missing extension argument')
             Log.info(f'provision_extension <extension>')
+            return False
         else:
             Log.info('start install extension')
             if self.lab_manager.current_instance is not None:
                 extension_name = arg
+                elastic_options = None
+                if arg.split()[0] == 'elastic_agent':
+                    from goad.elastic_agent import parse_options, ConfigurationError
+                    try:
+                        elastic_options = parse_options(arg)
+                    except ConfigurationError as error:
+                        Log.error(str(error))
+                        return False
+                    extension_name = 'elastic_agent'
                 extension = self.lab_manager.get_current_instance_lab().get_extension(extension_name)
                 if extension is not None:
+                    if not self._configure_elastic_agent(extension_name, force=True, options=elastic_options):
+                        return False
                     # enable and create files
                     self.lab_manager.get_current_instance().enable_extension(extension_name)
                     # # start lab with extensions files (vagrant up / terraform plan)
-                    self.lab_manager.get_current_instance_provider().install()
+                    if not self.lab_manager.get_current_instance_provider().install():
+                        Log.error(f'Providing extension {extension_name} failed')
+                        return False
                     # # provision extension
-                    self.do_provision_extension(extension_name)
+                    return self.do_provision_extension(extension_name)
                 else:
                     Log.error(f'extension {extension_name} not found abort')
+                    return False
             else:
                 Log.error('Install extension can only be run from an instance')
+                return False
+
+    def _configure_elastic_agent(self, extension_name, force=False, options=None):
+        if extension_name != 'elastic_agent':
+            return True
+        from goad.elastic_agent import configure, ConfigurationError
+        try:
+            configure(self.lab_manager.get_current_instance().instance_path, force=force, options=options)
+            return True
+        except ConfigurationError as error:
+            Log.error(str(error))
+            return False
+        except (ValueError, KeyError, TypeError, AttributeError, OSError, EOFError, KeyboardInterrupt):
+            # Do not print exceptions: malformed configuration can contain secrets.
+            Log.error('Elastic Agent configuration cancelled or invalid. Check the IP/URL, token, version and CA certificate.')
+            return False
 
     def do_provision_extension(self, arg):
         if arg == '':
             Log.error('missing extension argument')
             Log.info(f'provision_extension <extension>')
+            return False
         else:
             extension_name = arg
             start = time.time()
             current_instance_extensions_name = self.lab_manager.get_current_instance().extensions
             if extension_name in current_instance_extensions_name:
+                if not self._configure_elastic_agent(extension_name):
+                    return False
                 self.do_sync_source_jumpbox()
                 extension = self.lab_manager.get_current_instance_lab().get_extension(extension_name)
                 provision_result = self.lab_manager.get_current_instance_provisioner().run_extension(extension, current_instance_extensions_name)
                 if provision_result:
-                    time_provision = time.ctime(time.time() - start)[11:19]
+                    time_provision = Utils.format_elapsed_time(time.time() - start)
                     Log.info(f'Provision extension done in {time_provision}')
+                return provision_result
             else:
                 Log.error(f'extension {extension_name} not enabled in instance abort')
+                return False
 
     def do_labs(self, arg):
         show_labs_providers_table(self.lab_manager.get_labs())
@@ -334,21 +385,21 @@ class Goad(cmd.Cmd):
         show_labs_providers_list(self.lab_manager.get_labs())
 
     def do_update_instance_files(self, arg):
-        self.lab_manager.update_instance_files()
+        return self.lab_manager.update_instance_files()
 
     def do_create(self, arg=''):
         if self.lab_manager.get_current_instance() is not None:
-            self.do_install_instance()
+            return self.do_install_instance()
         else:
             Log.success('Current Settings')
             self.lab_manager.current_settings.show()
             print()
             if Utils.confirm('Create lab with theses settings ? (y/N)'):
                 Log.info('Create instance folder')
-                self.lab_manager.create_instance()
+                if not self.lab_manager.create_instance():
+                    return False
                 Log.info('Launch providing')
-                self.do_provide()
-                if self.lab_manager.get_current_instance().get_status() == PROVIDED:
+                if self.do_provide():
                     Log.info('Prepare jumpbox if needed')
                     self.do_prepare_jumpbox()
                     Log.info('Launch provisioning')
@@ -356,15 +407,18 @@ class Goad(cmd.Cmd):
                     if provision_result:
                         for extension_name in self.lab_manager.current_settings.extensions_name:
                             Log.info(f'Start installation of extension : {extension_name}')
-                            self.do_install_extension(extension_name)
+                            if not self.do_install_extension(extension_name):
+                                return False
                     self.refresh_prompt()
+                    return provision_result
                 else:
                     Log.error('Providing error stop')
+                    return False
+            return False
 
     def do_install_instance(self, arg=''):
         Log.info('Launch providing')
-        self.do_provide()
-        if self.lab_manager.get_current_instance().get_status() == PROVIDED:
+        if self.do_provide():
             Log.info('Prepare jumpbox if needed')
             self.do_prepare_jumpbox()
             Log.info('Launch provisioning')
@@ -372,10 +426,13 @@ class Goad(cmd.Cmd):
             if provision_result:
                 for extension_name in self.lab_manager.current_settings.extensions_name:
                     Log.info(f'Start installation of extension : {extension_name}')
-                    self.do_install_extension(extension_name)
+                    if not self.do_install_extension(extension_name):
+                        return False
             self.refresh_prompt()
+            return provision_result
         else:
             Log.error('Providing error stop')
+            return False
 
     def do_create_empty(self, arg=''):
         Log.info('Create instance folder')
@@ -405,11 +462,13 @@ class Goad(cmd.Cmd):
         if arg == '':
             Log.error('missing instance id argument')
             Log.info(f'use_instance <instance_id>')
+            return False
         else:
-            self.lab_manager.load_instance(arg)
-            if self.lab_manager.current_instance is not None:
+            loaded = self.lab_manager.load_instance(arg)
+            if loaded and self.lab_manager.current_instance is not None:
                 self.lab_manager.lab_instances.show_instances(current_instance_id=self.lab_manager.get_current_instance_id(), filter_instance_id=self.lab_manager.get_current_instance_id())
             self.refresh_prompt()
+            return loaded
 
     def complete_load(self, text, line, begidx, endidx):
         options = self.lab_manager.get_instance_options()
@@ -429,12 +488,14 @@ class Goad(cmd.Cmd):
             deleted = self.lab_manager.delete_instance()
             if deleted:
                 self.refresh_prompt()
+            return deleted
+        return False
 
     def do_disable_vagrant(self, arg):
         start = time.time()
         provision_result = self.lab_manager.get_current_instance_provisioner().run_disable_vagrant(disable_vagrant=True)
         if provision_result:
-            time_provision = time.ctime(time.time() - start)[11:19]
+            time_provision = Utils.format_elapsed_time(time.time() - start)
             Log.info(f'Disable vagrant done in {time_provision}')
             Log.info(f'Please restart the lab to avoid administrator NT hash in lsass')
 
@@ -442,7 +503,7 @@ class Goad(cmd.Cmd):
         start = time.time()
         provision_result = self.lab_manager.get_current_instance_provisioner().run_disable_vagrant(disable_vagrant=False)
         if provision_result:
-            time_provision = time.ctime(time.time() - start)[11:19]
+            time_provision = Utils.format_elapsed_time(time.time() - start)
             Log.info(f'Enable vagrant done in {time_provision}')
 
     # alias to list
@@ -489,7 +550,8 @@ if __name__ == '__main__':
         goad.cmdloop()
     else:
         if args.instance is not None:
-            goad.do_load(args.instance)
+            if not goad.do_load(args.instance):
+                sys.exit(1)
 
         if args.run_playbook is not None or args.ansible_only is not None:
             if args.instance is None:
@@ -498,32 +560,41 @@ if __name__ == '__main__':
 
         # Command line args like the old goad.sh commands
         if args.task is not None:
+            task_result = True
             if args.task == 'install':
                 if args.instance is not None:
                     if args.run_playbook is not None:
-                        goad.do_provision(args.run_playbook)
+                        task_result = goad.do_provision(args.run_playbook)
                     elif args.ansible_only:
-                        goad.do_provision_lab()
+                        task_result = goad.do_provision_lab()
                     else:
-                        goad.do_install_instance()
+                        task_result = goad.do_install_instance()
                 else:
-                    goad.do_install()
+                    task_result = goad.do_install()
             elif args.task == 'check':
-                goad.do_check()
+                task_result = goad.do_check()
             elif args.task == 'start':
-                goad.do_start()
+                task_result = goad.do_start()
             elif args.task == 'stop':
-                goad.do_stop()
+                task_result = goad.do_stop()
             elif args.task == 'restart':
-                goad.do_stop()
-                goad.do_start()
+                task_result = goad.do_stop()
+                if task_result is not False:
+                    task_result = goad.do_start()
             elif args.task == 'destroy':
-                goad.do_destroy()
+                task_result = goad.do_destroy()
             elif args.task == 'status':
-                goad.do_status()
+                task_result = goad.do_status()
             elif args.task == 'snapshot':
-                goad.do_snapshot()
+                task_result = goad.do_snapshot()
             elif args.task == 'reset':
-                goad.do_reset()
+                task_result = goad.do_reset()
+            elif args.task == 'update_instance_files':
+                task_result = goad.do_update_instance_files('')
             elif args.task == 'show':
                 pass
+            else:
+                Log.error(f'Unknown task: {args.task}')
+                task_result = False
+            if task_result is False:
+                sys.exit(1)

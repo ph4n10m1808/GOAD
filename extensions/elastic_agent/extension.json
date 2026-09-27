@@ -1,0 +1,7 @@
+{
+    "name": "elastic_agent",
+    "description": "Enroll Windows domain machines into an existing Elastic Fleet Server",
+    "machines": [],
+    "compatibility": ["*"],
+    "impact": "Install Elastic Agent on Windows domain machines; requires an existing Fleet Server and enrollment token"
+}

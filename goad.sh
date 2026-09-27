@@ -7,8 +7,8 @@ pip_requirements="requirements_311.yml"
 ansible_requirements="ansible/requirements_311.yml"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Use /mnt/ssd_data for vagrant data (boxes, etc.)
-export VAGRANT_HOME=/mnt/SSD_DATA/.vagrant.d
+# Vagrant box cache.
+export VAGRANT_HOME="${GOAD_VAGRANT_HOME:-/mnt/SSD_DATA/.vagrant.d}"
 
 cd "$script_dir"
 
@@ -65,10 +65,8 @@ if [ "${CONDA_DEFAULT_ENV:-}" != "$conda_env_name" ]; then
   conda activate "$conda_env_name"
 fi
 
-set +e
-python goad.py "$@"
-status=$?
-set -e
+goad_exit_code=0
+python goad.py "$@" || goad_exit_code=$?
 
 conda deactivate >/dev/null 2>&1 || true
-exit "$status"
+exit "$goad_exit_code"

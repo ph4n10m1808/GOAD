@@ -1,0 +1,5 @@
+- name: Install Fleet-managed Elastic Agent on Windows domain machines
+  hosts: elastic_agent_targets
+  gather_facts: false
+  roles:
+    - elastic_agent_windows

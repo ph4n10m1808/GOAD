@@ -1,0 +1,24 @@
+- name: Uninstall Elastic Agent from Windows domain machines
+  hosts: elastic_agent_targets
+  gather_facts: false
+  vars:
+    elastic_agent_install_dir: 'C:\Program Files\Elastic\Agent'
+  tasks:
+    - name: Inspect installed agent
+      ansible.windows.win_stat:
+        path: '{{ elastic_agent_install_dir }}\elastic-agent.exe'
+      register: elastic_agent_binary
+
+    - name: Uninstall from outside the installation directory
+      ansible.windows.win_command:
+        cmd: '"{{ elastic_agent_install_dir }}\elastic-agent.exe" uninstall --force'
+        chdir: 'C:\Windows\Temp'
+      when: elastic_agent_binary.stat.exists
+
+    - name: Verify service removal
+      ansible.windows.win_service_info:
+        name: Elastic Agent
+      register: elastic_agent_service
+      until: not elastic_agent_service.exists
+      retries: 6
+      delay: 5

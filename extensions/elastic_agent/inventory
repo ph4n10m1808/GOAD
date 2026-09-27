@@ -1,0 +1,3 @@
+; Agent-only extension: no additional VM.
+[elastic_agent_targets:children]
+domain

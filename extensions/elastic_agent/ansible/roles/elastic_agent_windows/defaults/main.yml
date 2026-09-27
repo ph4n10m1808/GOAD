@@ -1,0 +1,12 @@
+elastic_agent_fleet_url: ''
+elastic_agent_enrollment_token: ''
+elastic_agent_version: '8.19.16'
+elastic_agent_insecure: false
+elastic_agent_reenroll: false
+elastic_agent_ca_pem: ''
+elastic_agent_ca_dir: 'C:\ProgramData\Elastic\certs'
+elastic_agent_ca_path: '{{ elastic_agent_ca_dir }}\elastic-ca.crt'
+elastic_agent_install_dir: 'C:\Program Files\Elastic\Agent'
+elastic_agent_staging_dir: 'C:\Windows\Temp\goad-elastic-agent'
+elastic_agent_archive_name: 'elastic-agent-{{ elastic_agent_version }}-windows-x86_64'
+elastic_agent_download_url: 'https://artifacts.elastic.co/downloads/beats/elastic-agent/{{ elastic_agent_archive_name }}.zip'

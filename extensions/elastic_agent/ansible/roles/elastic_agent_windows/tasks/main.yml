@@ -1,0 +1,147 @@
+- name: Validate required Fleet options
+  ansible.builtin.assert:
+    that:
+      - elastic_agent_fleet_url is match('^https://[^\s]+$')
+      - elastic_agent_enrollment_token is match('^[A-Za-z0-9_+/=-]+$')
+      - elastic_agent_version is match('^[0-9]+\.[0-9]+\.[0-9]+$')
+      - elastic_agent_insecure == false
+      - "'-----BEGIN CERTIFICATE-----' in elastic_agent_ca_pem"
+      - "'PRIVATE KEY' not in elastic_agent_ca_pem"
+    fail_msg: Configure the Fleet URL, enrollment token, exact version and CA certificate first.
+  no_log: true
+
+- name: Inspect existing Elastic Agent service
+  ansible.windows.win_service_info:
+    name: Elastic Agent
+  register: elastic_agent_service
+
+- name: Inspect existing installation
+  ansible.windows.win_stat:
+    path: '{{ elastic_agent_install_dir }}\elastic-agent.exe'
+  register: elastic_agent_binary
+
+- name: Reject partial or nonstandard installations
+  ansible.builtin.assert:
+    that:
+      - elastic_agent_service.exists == elastic_agent_binary.stat.exists
+    fail_msg: Elastic Agent service and binary disagree. Repair or uninstall the existing installation before retrying.
+
+- name: Create persistent CA directory outside the agent installation
+  ansible.windows.win_file:
+    path: '{{ elastic_agent_ca_dir }}'
+    state: directory
+
+- name: Copy the supplied public CA to Windows
+  ansible.windows.win_copy:
+    content: '{{ elastic_agent_ca_pem }}'
+    dest: '{{ elastic_agent_ca_path }}'
+
+- name: Compute desired enrollment fingerprint
+  ansible.builtin.set_fact:
+    elastic_agent_enrollment_hash: "{{ [elastic_agent_fleet_url, elastic_agent_enrollment_token, elastic_agent_ca_pem] | to_json | hash('sha256') }}"
+  no_log: true
+
+- name: Inspect last successful enrollment fingerprint
+  ansible.windows.win_stat:
+    path: '{{ elastic_agent_ca_dir }}\goad-enrollment.sha256'
+  register: elastic_agent_marker
+
+- name: Read last successful enrollment fingerprint
+  ansible.windows.slurp:
+    src: '{{ elastic_agent_ca_dir }}\goad-enrollment.sha256'
+  when: elastic_agent_marker.stat.exists
+  register: elastic_agent_saved_hash
+
+- name: Download and install an absent agent
+  when: not elastic_agent_service.exists
+  block:
+    - name: Create staging directory
+      ansible.windows.win_file:
+        path: '{{ elastic_agent_staging_dir }}'
+        state: directory
+
+    - name: Download official Elastic Agent archive and verify SHA512
+      ansible.windows.win_get_url:
+        url: '{{ elastic_agent_download_url }}'
+        dest: '{{ elastic_agent_staging_dir }}\{{ elastic_agent_archive_name }}.zip'
+        checksum_url: '{{ elastic_agent_download_url }}.sha512'
+        checksum_algorithm: sha512
+
+    - name: Extract Elastic Agent
+      community.windows.win_unzip:
+        src: '{{ elastic_agent_staging_dir }}\{{ elastic_agent_archive_name }}.zip'
+        dest: '{{ elastic_agent_staging_dir }}'
+        creates: '{{ elastic_agent_staging_dir }}\{{ elastic_agent_archive_name }}\elastic-agent.exe'
+
+    - name: Install and enroll Elastic Agent
+      ansible.windows.win_command: >-
+        "{{ elastic_agent_staging_dir }}\{{ elastic_agent_archive_name }}\elastic-agent.exe"
+        install --non-interactive
+        --url={{ elastic_agent_fleet_url | ansible.windows.quote }}
+        --enrollment-token={{ elastic_agent_enrollment_token | ansible.windows.quote }}
+        --certificate-authorities={{ elastic_agent_ca_path | ansible.windows.quote }}
+      register: elastic_agent_install_result
+      changed_when: elastic_agent_install_result.rc == 0
+      failed_when: false
+      no_log: true
+
+    - name: Prepare credential-redacted Elastic Agent install diagnostics
+      ansible.builtin.set_fact:
+        elastic_agent_install_diagnostic: >-
+          {{
+            ((elastic_agent_install_result.stdout | default('')) ~ '\n' ~
+             (elastic_agent_install_result.stderr | default('')))
+            | regex_replace(elastic_agent_enrollment_token | regex_escape, '[REDACTED]')
+            | regex_replace('(?i)(--enrollment-token(?:=|\s+))\S+', '\\1[REDACTED]')
+            | truncate(1200, true, '...')
+          }}
+      when: elastic_agent_install_result.rc != 0
+      no_log: true
+
+    - name: Report Elastic Agent install failure without exposing credentials
+      ansible.builtin.fail:
+        msg: >-
+          Elastic Agent install/enroll failed (rc={{ elastic_agent_install_result.rc }}).
+          Credential-redacted command output:
+          {{ elastic_agent_install_diagnostic | default('No stdout or stderr was returned.') }}
+      when: elastic_agent_install_result.rc != 0
+
+- name: Re-enroll an existing agent when the requested enrollment changes
+  ansible.windows.win_command: >-
+    "{{ elastic_agent_install_dir }}\elastic-agent.exe" enroll --force
+    --url={{ elastic_agent_fleet_url | ansible.windows.quote }}
+    --enrollment-token={{ elastic_agent_enrollment_token | ansible.windows.quote }}
+    --certificate-authorities={{ elastic_agent_ca_path | ansible.windows.quote }}
+  when:
+    - elastic_agent_service.exists
+    - elastic_agent_reenroll | bool or (elastic_agent_saved_hash.content | default('') | b64decode | trim) != elastic_agent_enrollment_hash
+  no_log: true
+  register: elastic_agent_enroll
+
+- name: Ensure Elastic Agent service is running
+  ansible.windows.win_service:
+    name: Elastic Agent
+    start_mode: auto
+    state: "{{ 'restarted' if elastic_agent_enroll is changed else 'started' }}"
+
+- name: Verify local agent health
+  ansible.windows.win_command: '"{{ elastic_agent_install_dir }}\elastic-agent.exe" status --output json'
+  register: elastic_agent_health
+  changed_when: false
+  retries: 12
+  delay: 10
+  until:
+    - elastic_agent_health.rc == 0
+    # Elastic Agent 8.19.16 uses lowercase state but untagged FleetState in JSON.
+    - (elastic_agent_health.stdout | from_json).state | default(-1) == 2
+    - (elastic_agent_health.stdout | from_json).FleetState | default(-1) == 2
+
+- name: Record successful enrollment without storing the token in the marker
+  ansible.windows.win_copy:
+    content: '{{ elastic_agent_enrollment_hash }}'
+    dest: '{{ elastic_agent_ca_dir }}\goad-enrollment.sha256'
+
+- name: Remove installation staging files after successful health check
+  ansible.windows.win_file:
+    path: '{{ elastic_agent_staging_dir }}'
+    state: absent

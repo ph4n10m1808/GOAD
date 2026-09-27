@@ -56,7 +56,9 @@ class LabManager(metaclass=SingletonMeta):
 
     def update_instance_files(self, arg=''):
         if self.current_instance is not None:
-            self.current_instance.update_instance_folder()
+            return self.current_instance.update_instance_folder()
+        Log.error('No instance selected')
+        return False
 
     def create_instance(self):
         instance = LabInstance(None, self.current_settings.lab_name, self.config, self.current_settings.provider_name, self.current_settings.provisioner_name,
@@ -87,8 +89,11 @@ class LabManager(metaclass=SingletonMeta):
                 # load instance
                 self.current_instance = instance
                 Log.success(f'Instance {instance_id} loaded')
+                return True
+            return False
         else:
             Log.error('Instance not found in workspace')
+            return False
 
     def set_as_default_instance(self):
         if self.current_instance is not None:

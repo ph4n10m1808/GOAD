@@ -123,7 +123,7 @@ set_lab <lab_name>
 
 ### set_provider
 
-Choose the provider to use (virtualbox/vmware/aws/azure/ludus/proxmox)
+Choose the provider to use (virtualbox/libvirt/vmware/aws/azure/ludus/proxmox)
 
 ```
 set_provider <lab_name>
@@ -161,7 +161,7 @@ set_ip_range <ip_range>
 status .................................. show current status
 start ................................... start lab
 stop .................................... stop lab
-destroy ................................. destroy lab
+destroy ................................. destroy lab and delete its workspace instance
 
 *** Manage one vm commands ***
 start_vm <vm_name> ...................... start selected virtual machine
@@ -227,6 +227,13 @@ stop
 ```
 
 ### destroy
+
+Destroys the selected lab's VMs and then removes its entire
+`workspace/<instance-id>/` directory, including generated configuration and state.
+Uses the same confirmation and cleanup flow as `delete`. The instance is removed
+from the list and unloaded only after successful deletion. If VM destruction
+fails, the workspace is kept so the operation can be retried.
+`destroy_vm <vm_name>` keeps the lab workspace.
 
 !!! danger
     Destroy the current lab instance vms
