@@ -1,0 +1,19 @@
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - 'C:\inetpub\logs\LogFiles\W3SVC*\u_ex*.log'
+    fields:
+      log_type: iis
+    fields_under_root: true
+
+setup.template.settings:
+  index.number_of_shards: 1
+
+output.elasticsearch:
+  hosts: ["{{ hostvars['elk'].ansible_host }}:9200"]
+  username: "elastic"
+  password: "changeme"
+
+processors:
+  - add_host_metadata: ~

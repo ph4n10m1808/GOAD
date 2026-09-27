@@ -1,0 +1,6 @@
+- name: Remove Splunk Universal Forwarder from Windows domain machines
+  hosts: splunk_uf_targets
+  gather_facts: false
+  roles:
+    - role: splunk_uf_windows_uninstall
+      tags: splunk_uf

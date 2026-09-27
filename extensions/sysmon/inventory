@@ -1,0 +1,5 @@
+; EXTENSION : SYSMON ------------------------------------------
+; Agent-only extension: no additional machine is provisioned.
+
+[sysmon_targets:children]
+domain

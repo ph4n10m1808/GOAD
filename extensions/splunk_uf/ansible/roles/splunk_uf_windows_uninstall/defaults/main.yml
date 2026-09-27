@@ -1,0 +1,6 @@
+splunk_uf_version: "10.4.1"
+splunk_uf_download_dir: "C:\\Windows\\Temp\\goad-splunk-uf"
+splunk_uf_msi_path: "{{ splunk_uf_download_dir }}\\splunkforwarder-{{ splunk_uf_version }}-x64.msi"
+splunk_uf_install_dir: "C:\\Program Files\\SplunkUniversalForwarder"
+splunk_uf_service_name: "SplunkForwarder"
+splunk_uf_remove_download: true

@@ -1,0 +1,6 @@
+- name: Remove Sysmon from all Windows domain machines
+  hosts: sysmon_targets
+  gather_facts: false
+  roles:
+    - role: sysmon_windows_uninstall
+      tags: sysmon

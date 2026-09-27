@@ -1,0 +1,9 @@
+{
+    "name": "sysmon",
+    "description": "Deploy Sysmon with a pinned SwiftOnSecurity configuration to all Windows domain machines",
+    "machines": [],
+    "compatibility": [
+        "*"
+    ],
+    "impact": "install Sysmon64 and enable high-quality endpoint telemetry on all Windows domain machines"
+}

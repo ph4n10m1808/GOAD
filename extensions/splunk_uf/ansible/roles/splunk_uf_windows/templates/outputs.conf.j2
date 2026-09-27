@@ -1,0 +1,10 @@
+# Managed by the GOAD splunk_uf extension.
+# Direct forwarding only; no deploymentclient.conf is created.
+
+[tcpout]
+defaultGroup = {{ splunk_uf_output_group }}
+
+[tcpout:{{ splunk_uf_output_group }}]
+server = {{ splunk_uf_receiver_host }}:{{ splunk_uf_receiver_port }}
+autoLB = false
+useACK = {{ splunk_uf_use_ack | bool | lower }}

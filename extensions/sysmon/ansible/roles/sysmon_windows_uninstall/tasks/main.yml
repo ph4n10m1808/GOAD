@@ -1,0 +1,18 @@
+- name: Check whether the Sysmon service exists
+  ansible.windows.win_service:
+    name: "{{ sysmon_service_name }}"
+  register: sysmon_service
+  failed_when: false
+
+- name: Uninstall the Sysmon service and driver
+  ansible.windows.win_command: >-
+    "{{ sysmon_executable_path }}" -u force
+  args:
+    chdir: "{{ sysmon_install_location }}"
+  when: sysmon_service.exists
+
+- name: Remove the Sysmon installation directory
+  ansible.windows.win_file:
+    path: "{{ sysmon_install_location }}"
+    state: absent
+  when: sysmon_remove_install_directory | bool

@@ -1,0 +1,4 @@
+sysmon_install_location: "C:\\Sysmon"
+sysmon_executable_path: "{{ sysmon_install_location }}\\Sysmon64.exe"
+sysmon_service_name: "Sysmon64"
+sysmon_remove_install_directory: true

@@ -1,0 +1,14 @@
+- name: Bootstrap the standalone Splunk indexer when credentials are available
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: splunk_indexer_bootstrap
+      tags: splunk_indexer
+
+- name: Install Splunk Universal Forwarder on Windows domain machines
+  hosts: splunk_uf_targets
+  gather_facts: false
+  roles:
+    - role: splunk_uf_windows
+      tags: splunk_uf

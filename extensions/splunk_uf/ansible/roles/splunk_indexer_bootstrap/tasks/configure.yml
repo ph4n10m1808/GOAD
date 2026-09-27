@@ -1,0 +1,87 @@
+- name: Wait for the Splunk management API
+  ansible.builtin.uri:
+    url: "{{ splunk_indexer_api_base }}/server/info?output_mode=json"
+    method: GET
+    user: "{{ splunk_indexer_admin_user }}"
+    password: "{{ splunk_indexer_admin_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ splunk_indexer_verify_tls | bool }}"
+    return_content: true
+    status_code: 200
+  register: splunk_indexer_info
+  until: splunk_indexer_info is succeeded
+  retries: 12
+  delay: 5
+  no_log: true
+
+- name: Query managed Splunk indexes
+  ansible.builtin.uri:
+    url: "{{ splunk_indexer_api_base }}/data/indexes/{{ item }}?output_mode=json"
+    method: GET
+    user: "{{ splunk_indexer_admin_user }}"
+    password: "{{ splunk_indexer_admin_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ splunk_indexer_verify_tls | bool }}"
+    return_content: true
+    status_code: [200, 404]
+  loop: "{{ splunk_indexer_managed_indexes | unique }}"
+  register: splunk_indexer_index_queries
+  no_log: true
+
+- name: Create missing Splunk indexes
+  ansible.builtin.uri:
+    url: "{{ splunk_indexer_api_base }}/data/indexes"
+    method: POST
+    user: "{{ splunk_indexer_admin_user }}"
+    password: "{{ splunk_indexer_admin_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ splunk_indexer_verify_tls | bool }}"
+    body_format: form-urlencoded
+    body:
+      name: "{{ item.item }}"
+      datatype: event
+      frozenTimePeriodInSecs: "{{ splunk_indexer_frozen_time_period }}"
+      maxTotalDataSizeMB: "{{ splunk_indexer_max_size_mb }}"
+    status_code: 201
+  loop: "{{ splunk_indexer_index_queries.results }}"
+  when: item.status == 404
+  no_log: true
+
+- name: Query the managed cooked TCP receiver
+  ansible.builtin.uri:
+    url: >-
+      {{ splunk_indexer_api_base }}/data/inputs/tcp/cooked/
+      {{- splunk_indexer_receiver_port }}?output_mode=json
+    method: GET
+    user: "{{ splunk_indexer_admin_user }}"
+    password: "{{ splunk_indexer_admin_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ splunk_indexer_verify_tls | bool }}"
+    return_content: true
+    status_code: [200, 404]
+  register: splunk_indexer_receiver_query
+  no_log: true
+
+- name: Enable the Splunk cooked TCP receiver
+  ansible.builtin.uri:
+    url: "{{ splunk_indexer_api_base }}/data/inputs/tcp/cooked"
+    method: POST
+    user: "{{ splunk_indexer_admin_user }}"
+    password: "{{ splunk_indexer_admin_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ splunk_indexer_verify_tls | bool }}"
+    body_format: form-urlencoded
+    body:
+      name: "{{ splunk_indexer_receiver_port }}"
+      connection_host: ip
+      disabled: 0
+    status_code: 201
+  when: splunk_indexer_receiver_query.status == 404
+  no_log: true
+
+- name: Show synchronized Splunk destination
+  ansible.builtin.debug:
+    msg:
+      - "Indexer API : {{ splunk_indexer_host }}:{{ splunk_indexer_api_port }}"
+      - "Receiver    : {{ splunk_indexer_host }}:{{ splunk_indexer_receiver_port }}"
+      - "Indexes     : {{ splunk_indexer_managed_indexes | unique | join(', ') }}"

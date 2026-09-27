@@ -1,0 +1,23 @@
+- name: Check whether Splunk Universal Forwarder is installed
+  ansible.windows.win_service:
+    name: "{{ splunk_uf_service_name }}"
+  register: splunk_uf_service
+  failed_when: false
+
+- name: Stop Splunk Universal Forwarder
+  ansible.windows.win_service:
+    name: "{{ splunk_uf_service_name }}"
+    state: stopped
+  when: splunk_uf_service.exists
+
+- name: Uninstall Splunk Universal Forwarder from the cached MSI
+  ansible.windows.win_package:
+    path: "{{ splunk_uf_msi_path }}"
+    state: absent
+  when: splunk_uf_service.exists
+
+- name: Remove the cached Splunk UF installer
+  ansible.windows.win_file:
+    path: "{{ splunk_uf_download_dir }}"
+    state: absent
+  when: splunk_uf_remove_download | bool

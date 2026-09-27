@@ -1,0 +1,5 @@
+; EXTENSION : SPLUNK UNIVERSAL FORWARDER ----------------------
+; Agent-only extension: no additional machine is provisioned.
+
+[splunk_uf_targets:children]
+domain

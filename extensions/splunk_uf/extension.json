@@ -1,0 +1,9 @@
+{
+    "name": "splunk_uf",
+    "description": "Install and configure Splunk Universal Forwarder without a Deployment Server",
+    "machines": [],
+    "compatibility": [
+        "*"
+    ],
+    "impact": "install Splunk Universal Forwarder on all Windows domain machines and send telemetry directly to a configured receiver"
+}

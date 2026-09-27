@@ -1,0 +1,4 @@
+- name: Restart Splunk Universal Forwarder
+  ansible.windows.win_service:
+    name: "{{ splunk_uf_service_name }}"
+    state: restarted

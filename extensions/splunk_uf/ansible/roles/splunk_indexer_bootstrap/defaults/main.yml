@@ -1,0 +1,43 @@
+splunk_indexer_host: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_INDEXER_HOST')
+     | default('192.168.58.10', true) }}
+splunk_indexer_api_scheme: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_INDEXER_SCHEME')
+     | default('https', true) }}
+splunk_indexer_api_port: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_INDEXER_API_PORT')
+     | default('8089', true) | int }}
+splunk_indexer_admin_user: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_INDEXER_USER')
+     | default('admin', true) }}
+splunk_indexer_admin_password: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_INDEXER_PASSWORD') }}
+splunk_indexer_verify_tls: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_VERIFY_TLS')
+     | default('false', true) | bool }}
+splunk_indexer_auto_configure: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_AUTO_CONFIGURE_INDEXER')
+     | default((splunk_indexer_admin_password | length > 0), true) | bool }}
+splunk_indexer_config_required: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_INDEXER_REQUIRED')
+     | default('false', true) | bool }}
+splunk_indexer_receiver_port: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_RECEIVER_PORT')
+     | default('9997', true) | int }}
+splunk_indexer_windows_index: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_WINDOWS_INDEX')
+     | default('wineventlog', true) }}
+splunk_indexer_web_index: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_WEB_INDEX')
+     | default('web', true) }}
+splunk_indexer_frozen_time_period: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_RETENTION_SECONDS')
+     | default('2592000', true) | int }}
+splunk_indexer_max_size_mb: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_MAX_INDEX_SIZE_MB')
+     | default('500000', true) | int }}
+splunk_indexer_api_base: >-
+  {{ splunk_indexer_api_scheme }}://{{ splunk_indexer_host }}:{{ splunk_indexer_api_port }}/services
+splunk_indexer_managed_indexes:
+  - "{{ splunk_indexer_windows_index }}"
+  - "{{ splunk_indexer_web_index }}"

@@ -20,7 +20,6 @@
 
 winlogbeat.event_logs:
   - name: Application
-    ignore_older: 30m
 
   - name: System
 
@@ -32,6 +31,7 @@ winlogbeat.event_logs:
           file: ${path.home}/module/security/config/winlogbeat-security.js
 
   - name: Microsoft-Windows-Sysmon/Operational
+    ignore_missing_channel: true
     processors:
       - script:
           lang: javascript
@@ -39,7 +39,7 @@ winlogbeat.event_logs:
           file: ${path.home}/module/sysmon/config/winlogbeat-sysmon.js
 
   - name: Windows PowerShell
-    event_id: 400, 403, 600, 800
+    ignore_missing_channel: true
     processors:
       - script:
           lang: javascript
@@ -47,7 +47,7 @@ winlogbeat.event_logs:
           file: ${path.home}/module/powershell/config/winlogbeat-powershell.js
 
   - name: Microsoft-Windows-PowerShell/Operational
-    event_id: 4103, 4104, 4105, 4106
+    ignore_missing_channel: true
     processors:
       - script:
           lang: javascript
@@ -55,6 +55,7 @@ winlogbeat.event_logs:
           file: ${path.home}/module/powershell/config/winlogbeat-powershell.js
 
   - name: ForwardedEvents
+    ignore_missing_channel: true
     tags: [forwarded]
     processors:
       - script:
@@ -78,7 +79,57 @@ winlogbeat.event_logs:
           id: powershell
           file: ${path.home}/module/powershell/config/winlogbeat-powershell.js
   - name: Microsoft-Windows-WMI-Activity/Operational
-    event_id: 5857,5858,5859,5860,5861 
+    ignore_missing_channel: true
+
+  # Active Directory and remote administration telemetry. Optional channels are
+  # ignored on hosts where the corresponding Windows role is not installed.
+  - name: Directory Service
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-TaskScheduler/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-WinRM/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-Kerberos-Key-Distribution-Center/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-Security-Kerberos/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-SMBServer/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-SMBServer/Audit
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-SMBServer/Connectivity
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-SMBServer/Security
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-NTLM/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-TerminalServices-LocalSessionManager/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-Windows Firewall With Advanced Security/Firewall
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-Windows Defender/Operational
+    ignore_missing_channel: true
+
+  - name: Microsoft-Windows-DNSServer/Analytical
+    ignore_missing_channel: true
 # ====================== Elasticsearch template settings =======================
 
 setup.template.settings:

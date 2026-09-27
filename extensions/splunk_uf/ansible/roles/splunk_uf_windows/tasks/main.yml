@@ -1,9 +1,80 @@
-- name: Install winlogbeat
-  import_tasks: winlogbeat.yml
+- name: Check whether Splunk Universal Forwarder is installed
+  ansible.windows.win_service:
+    name: "{{ splunk_uf_service_name }}"
+  register: splunk_uf_service
+  failed_when: false
 
-- name: Install Filebeat for IIS logs
-  import_tasks: filebeat.yml
-  when: winlogbeat_collect_iis | bool
+- name: Validate the Splunk Universal Forwarder local credential
+  ansible.builtin.assert:
+    that:
+      - splunk_uf_admin_password | length >= 8
+      - splunk_uf_admin_password is match('^[^\s"]{8,128}$')
+    fail_msg: Export GOAD_SPLUNK_UF_PASSWORD with a lab-specific password before installing Splunk UF.
+  no_log: true
+  when: not splunk_uf_service.exists
+
+- name: Create the Splunk UF download directory
+  ansible.windows.win_file:
+    path: "{{ splunk_uf_download_dir }}"
+    state: directory
+  when: not splunk_uf_service.exists
+
+- name: Download Splunk Universal Forwarder
+  ansible.windows.win_get_url:
+    url: "{{ splunk_uf_download_url }}"
+    dest: "{{ splunk_uf_msi_path }}"
+    force: false
+  register: splunk_uf_download
+  until: splunk_uf_download is succeeded
+  retries: 3
+  delay: 10
+  when: not splunk_uf_service.exists
+
+- name: Verify the Splunk UF MSI Authenticode signature
+  ansible.windows.win_powershell:
+    script: |
+      $signature = Get-AuthenticodeSignature -LiteralPath '{{ splunk_uf_msi_path }}'
+      if ($signature.Status -ne 'Valid' -or
+          $signature.SignerCertificate.Subject -notmatch 'Splunk') {
+          throw 'The Splunk Universal Forwarder MSI does not have a valid Splunk signature'
+      }
+      $Ansible.Changed = $false
+  when: not splunk_uf_service.exists
+
+- name: Install Splunk UF as LocalSystem with a recoverable local login
+  ansible.windows.win_package:
+    path: "{{ splunk_uf_msi_path }}"
+    state: present
+    creates_service: "{{ splunk_uf_service_name }}"
+    arguments: >-
+      AGREETOLICENSE=Yes
+      SPLUNKUSERNAME={{ splunk_uf_admin_user }}
+      SPLUNKPASSWORD={{ splunk_uf_admin_password }}
+      USE_LOCAL_SYSTEM=1
+      LAUNCHSPLUNK=0
+      SERVICESTARTTYPE=auto
+  register: splunk_uf_install
+  no_log: true
+  when: not splunk_uf_service.exists
+
+- name: Create the GOAD Splunk application directory
+  ansible.windows.win_file:
+    path: "{{ splunk_uf_app_local_dir }}"
+    state: directory
+
+- name: Configure Windows and Sysmon event inputs
+  ansible.windows.win_template:
+    src: inputs.conf.j2
+    dest: "{{ splunk_uf_app_local_dir }}\\inputs.conf"
+  register: splunk_uf_inputs
+  notify: Restart Splunk Universal Forwarder
+
+- name: Configure direct forwarding without a Deployment Server
+  ansible.windows.win_template:
+    src: outputs.conf.j2
+    dest: "{{ splunk_uf_app_local_dir }}\\outputs.conf"
+  register: splunk_uf_outputs
+  notify: Restart Splunk Universal Forwarder
 
 - name: Force Advanced Audit Policy subcategories to override legacy audit policy
   ansible.windows.win_regedit:
@@ -11,29 +82,29 @@
     name: SCENoApplyLegacyAuditPolicy
     data: 1
     type: dword
-  when: winlogbeat_force_advanced_audit_policy | bool
+  when: splunk_uf_force_advanced_audit_policy | bool
 
 - name: Check available Advanced Audit Policy subcategories
   ansible.windows.win_command: >-
     auditpol.exe /get /subcategory:"{{ item.subcategory }}"
-  loop: "{{ winlogbeat_advanced_audit_policy }}"
+  loop: "{{ splunk_uf_advanced_audit_policy }}"
   loop_control:
     label: "{{ item.subcategory }}"
-  register: winlogbeat_audit_subcategory_checks
+  register: splunk_uf_audit_subcategory_checks
   changed_when: false
   failed_when: false
-  when: winlogbeat_configure_advanced_audit_policy | bool
+  when: splunk_uf_configure_advanced_audit_policy | bool
 
 - name: Configure available Advanced Audit Policy subcategories
   ansible.windows.win_command: >-
     auditpol.exe /set /subcategory:"{{ item.item.subcategory }}"
     /success:{{ item.item.success }} /failure:{{ item.item.failure }}
-  loop: "{{ winlogbeat_audit_subcategory_checks.results | default([]) }}"
+  loop: "{{ splunk_uf_audit_subcategory_checks.results | default([]) }}"
   loop_control:
     label: "{{ item.item.subcategory }}"
   changed_when: false
   when:
-    - winlogbeat_configure_advanced_audit_policy | bool
+    - splunk_uf_configure_advanced_audit_policy | bool
     - item.rc == 0
 
 - name: Include command lines in process creation events
@@ -42,7 +113,7 @@
     name: ProcessCreationIncludeCmdLine_Enabled
     data: 1
     type: dword
-  when: winlogbeat_include_process_command_line | bool
+  when: splunk_uf_include_process_command_line | bool
 
 - name: Enable PowerShell Script Block Logging
   ansible.windows.win_regedit:
@@ -50,7 +121,7 @@
     name: EnableScriptBlockLogging
     data: 1
     type: dword
-  when: winlogbeat_enable_powershell_logging | bool
+  when: splunk_uf_enable_powershell_logging | bool
 
 - name: Enable PowerShell Script Block Invocation Logging
   ansible.windows.win_regedit:
@@ -58,7 +129,7 @@
     name: EnableScriptBlockInvocationLogging
     data: 1
     type: dword
-  when: winlogbeat_enable_powershell_logging | bool
+  when: splunk_uf_enable_powershell_logging | bool
 
 - name: Enable PowerShell Module Logging
   ansible.windows.win_regedit:
@@ -66,7 +137,7 @@
     name: EnableModuleLogging
     data: 1
     type: dword
-  when: winlogbeat_enable_powershell_logging | bool
+  when: splunk_uf_enable_powershell_logging | bool
 
 - name: Log all PowerShell modules
   ansible.windows.win_regedit:
@@ -74,7 +145,7 @@
     name: "*"
     data: "*"
     type: string
-  when: winlogbeat_enable_powershell_logging | bool
+  when: splunk_uf_enable_powershell_logging | bool
 
 - name: Audit incoming NTLM traffic without blocking authentication
   ansible.windows.win_regedit:
@@ -82,7 +153,7 @@
     name: AuditReceivingNTLMTraffic
     data: 2
     type: dword
-  when: winlogbeat_enable_ntlm_incoming_audit | bool
+  when: splunk_uf_enable_ntlm_incoming_audit | bool
 
 - name: Audit DCSync replication rights at the domain root
   ansible.windows.win_powershell:
@@ -120,7 +191,7 @@
       if ($changed) { Set-Acl -Path $domainPath -AclObject $domainAcl }
       $Ansible.Changed = $changed
   when:
-    - winlogbeat_enable_dcsync_sacl | bool
+    - splunk_uf_enable_dcsync_sacl | bool
     - "'dc' in group_names"
 
 - name: Enable monitored Windows event channels when present
@@ -140,7 +211,7 @@
       } else {
           $Ansible.Changed = $false
       }
-  loop: "{{ winlogbeat_enable_event_channels }}"
+  loop: "{{ splunk_uf_enable_event_channels }}"
   loop_control:
     label: "{{ item }}"
 
@@ -163,7 +234,7 @@
       } else {
           $Ansible.Changed = $false
       }
-  when: winlogbeat_enable_dns_analytical | bool
+  when: splunk_uf_enable_dns_analytical | bool
 
 - name: Increase monitored Windows event log sizes when present
   ansible.windows.win_powershell:
@@ -183,7 +254,7 @@
       } else {
           $Ansible.Changed = $false
       }
-  loop: "{{ winlogbeat_event_log_sizes }}"
+  loop: "{{ splunk_uf_event_log_sizes }}"
   loop_control:
     label: "{{ item.name }}"
 
@@ -207,45 +278,43 @@
           $Ansible.Changed = $false
       }
   when:
-    - winlogbeat_enable_adcs_auditing | bool
+    - splunk_uf_enable_adcs_auditing | bool
     - "'adcs' in group_names"
 
-- name: Validate the Winlogbeat configuration
-  ansible.windows.win_command: "winlogbeat.exe test config -e"
-  args:
-    chdir: "{{ winlogbeat_service.install_path_64 }}\\winlogbeat-{{ winlogbeat_service.version }}-windows-x86_64\\"
+- name: Validate the effective Splunk input configuration
+  ansible.windows.win_command: >-
+    "{{ splunk_uf_install_dir }}\\bin\\splunk.exe" btool inputs list --debug
   changed_when: false
 
-- name: Test the Winlogbeat Elasticsearch output
-  ansible.windows.win_command: "winlogbeat.exe test output -e"
-  args:
-    chdir: "{{ winlogbeat_service.install_path_64 }}\\winlogbeat-{{ winlogbeat_service.version }}-windows-x86_64\\"
+- name: Validate the effective Splunk output configuration
+  ansible.windows.win_command: >-
+    "{{ splunk_uf_install_dir }}\\bin\\splunk.exe" btool outputs list --debug
   changed_when: false
 
-# RUN winlogbeat
-- name: Check winlogbeat service
-  win_service:
-    name: winlogbeat
-  register: resultwlb
-  failed_when: resultwlb is not defined
-  ignore_errors: yes
-
-- name: Reboot before launch setup
-  win_reboot:
-    reboot_timeout: 600
-    post_reboot_delay: 100
-  when: resultwlb.state is defined and resultwlb.state != 'running'
-
-- name: Run winlogbeat setup
-  win_command: "winlogbeat setup -e"
-  args:
-    chdir: "{{ winlogbeat_service.install_path_64 }}\\winlogbeat-{{ winlogbeat_service.version }}-windows-x86_64\\"
-  when: resultwlb.state is defined and resultwlb.state != 'running'
-
-# RUN winlogbeat
-- name: Ensure winlogbeat is enabled and running
-  win_service:
-    name: winlogbeat
-    start_mode: auto
+- name: Ensure Splunk Universal Forwarder is enabled and running
+  ansible.windows.win_service:
+    name: "{{ splunk_uf_service_name }}"
     state: started
-  when: resultwlb.state is defined and resultwlb.state != 'running'
+    start_mode: auto
+
+- name: Apply pending Splunk UF configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Test the direct connection to the Splunk receiver
+  ansible.windows.win_wait_for:
+    host: "{{ splunk_uf_receiver_host }}"
+    port: "{{ splunk_uf_receiver_port }}"
+    timeout: 10
+  register: splunk_uf_receiver_test
+  failed_when: >-
+    (splunk_uf_require_receiver | bool) and
+    (splunk_uf_receiver_test.failed | default(false))
+
+- name: Show manual recovery information
+  ansible.builtin.debug:
+    msg:
+      - "Splunk UF service : {{ splunk_uf_service_name }} (LocalSystem)"
+      - "Splunk local user : {{ splunk_uf_admin_user }}"
+      - "Splunk local pass : supplied through GOAD_SPLUNK_UF_PASSWORD (not displayed)"
+      - "Direct receiver   : {{ splunk_uf_receiver_host }}:{{ splunk_uf_receiver_port }}"
+      - "Configuration     : {{ splunk_uf_app_local_dir }}"

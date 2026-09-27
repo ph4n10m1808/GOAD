@@ -1,0 +1,80 @@
+---
+- name: Create Filebeat install directory
+  ansible.windows.win_file:
+    path: "{{ filebeat_service.install_path_64 }}"
+    state: directory
+
+- name: Check whether Filebeat is installed
+  ansible.windows.win_service:
+    name: filebeat
+  register: filebeat_installed
+
+- name: Check whether the selected Filebeat version is present
+  ansible.windows.win_stat:
+    path: "{{ filebeat_service.install_path_64 }}\\filebeat-{{ filebeat_service.version }}-windows-x86_64"
+  register: filebeat_folder
+
+- name: Remove a stale Filebeat service before installing the selected version
+  ansible.windows.win_powershell:
+    script: |
+      $service = Get-Service -Name filebeat -ErrorAction SilentlyContinue
+      if ($null -eq $service) {
+          $Ansible.Changed = $false
+          return
+      }
+      if ($service.Status -ne 'Stopped') {
+          Stop-Service -Name filebeat -Force -ErrorAction Stop
+      }
+      & sc.exe delete filebeat | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+          throw 'Unable to delete the stale Filebeat service'
+      }
+      $Ansible.Changed = $true
+  when:
+    - filebeat_installed.exists
+    - not filebeat_folder.stat.exists
+
+- name: Download Filebeat
+  ansible.windows.win_get_url:
+    url: "https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-{{ filebeat_service.version }}-windows-x86_64.zip"
+    dest: "{{ filebeat_service.install_path_64 }}\\filebeat.zip"
+  when:
+    - filebeat_service.download | bool
+    - not filebeat_folder.stat.exists
+
+- name: Unzip Filebeat
+  community.windows.win_unzip:
+    src: "{{ filebeat_service.install_path_64 }}\\filebeat.zip"
+    dest: "{{ filebeat_service.install_path_64 }}\\"
+    delete_archive: true
+  when: not filebeat_folder.stat.exists
+
+- name: Configure Filebeat IIS collection
+  ansible.windows.win_template:
+    src: filebeat.yml.j2
+    dest: "{{ filebeat_service.install_path_64 }}\\filebeat-{{ filebeat_service.version }}-windows-x86_64\\filebeat.yml"
+  notify: restart-filebeat
+
+- name: Validate the Filebeat configuration
+  ansible.windows.win_command: "filebeat.exe test config -e"
+  args:
+    chdir: "{{ filebeat_service.install_path_64 }}\\filebeat-{{ filebeat_service.version }}-windows-x86_64\\"
+  changed_when: false
+
+- name: Test the Filebeat Elasticsearch output
+  ansible.windows.win_command: "filebeat.exe test output -e"
+  args:
+    chdir: "{{ filebeat_service.install_path_64 }}\\filebeat-{{ filebeat_service.version }}-windows-x86_64\\"
+  changed_when: false
+
+- name: Install the Filebeat service
+  ansible.windows.win_shell: .\install-service-filebeat.ps1
+  args:
+    chdir: "{{ filebeat_service.install_path_64 }}\\filebeat-{{ filebeat_service.version }}-windows-x86_64\\"
+  when: not filebeat_installed.exists or not filebeat_folder.stat.exists
+
+- name: Ensure Filebeat is enabled and running
+  ansible.windows.win_service:
+    name: filebeat
+    start_mode: auto
+    state: started

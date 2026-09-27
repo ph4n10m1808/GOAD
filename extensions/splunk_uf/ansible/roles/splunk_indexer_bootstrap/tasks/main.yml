@@ -1,0 +1,40 @@
+- name: Explain why automatic Splunk indexer configuration is skipped
+  ansible.builtin.debug:
+    msg: >-
+      Splunk indexer bootstrap skipped. Export GOAD_SPLUNK_INDEXER_PASSWORD
+      (and optionally the other GOAD_SPLUNK_* variables) to enable it.
+  when: not (splunk_indexer_auto_configure | bool)
+
+- name: Validate automatic Splunk indexer configuration
+  ansible.builtin.assert:
+    that:
+      - splunk_indexer_admin_password | length > 0
+      - splunk_indexer_receiver_port | int > 0
+      - splunk_indexer_receiver_port | int < 65536
+      - splunk_indexer_windows_index is match('^[a-z0-9][a-z0-9_-]*$')
+      - splunk_indexer_web_index is match('^[a-z0-9][a-z0-9_-]*$')
+    fail_msg: >-
+      Automatic indexer configuration requires a password, a valid receiver
+      port, and valid lowercase Splunk index names.
+  no_log: true
+  when: splunk_indexer_auto_configure | bool
+
+- name: Configure the standalone Splunk indexer through its management API
+  when: splunk_indexer_auto_configure | bool
+  block:
+    - name: Apply indexes and receiving port
+      ansible.builtin.include_tasks: configure.yml
+  rescue:
+    - name: Stop when indexer bootstrap is mandatory
+      ansible.builtin.fail:
+        msg: >-
+          Splunk indexer bootstrap failed at {{ splunk_indexer_host }}:
+          {{ splunk_indexer_api_port }}. Check API reachability and credentials.
+      when: splunk_indexer_config_required | bool
+
+    - name: Continue with Universal Forwarder installation
+      ansible.builtin.debug:
+        msg: >-
+          Splunk indexer bootstrap failed, but GOAD_SPLUNK_INDEXER_REQUIRED is
+          false. Universal Forwarder installation will continue.
+      when: not (splunk_indexer_config_required | bool)

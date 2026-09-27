@@ -1,26 +1,53 @@
+# Exact official installer selected for this lab.
+splunk_uf_version: "10.4.1"
+splunk_uf_build: "5a009d941268"
+splunk_uf_download_url: >-
+  https://download.splunk.com/products/universalforwarder/releases/{{ splunk_uf_version }}/windows/splunkforwarder-{{ splunk_uf_version }}-{{ splunk_uf_build }}-windows-x64.msi
+splunk_uf_download_dir: "C:\\Windows\\Temp\\goad-splunk-uf"
+splunk_uf_msi_path: "{{ splunk_uf_download_dir }}\\splunkforwarder-{{ splunk_uf_version }}-x64.msi"
+splunk_uf_install_dir: "C:\\Program Files\\SplunkUniversalForwarder"
+splunk_uf_service_name: "SplunkForwarder"
 
-winlogbeat_service:
-  install_path_64: "C:\\Program Files\\Elastic\\winlogbeat"
-  install_path_32: "C:\\Program Files (x86)\\Elastic\\winlogbeat"
-  version: "7.17.6"
-  download: true
+# Splunk-local administrator account. This is not a Windows/domain account.
+# Keep the password outside source control and Ansible output.
+splunk_uf_admin_user: "splunk"
+splunk_uf_admin_password: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_UF_PASSWORD') }}
 
-winlogbeat_enable_dns_analytical: true
-winlogbeat_configure_advanced_audit_policy: true
-winlogbeat_include_process_command_line: true
-winlogbeat_force_advanced_audit_policy: true
-winlogbeat_enable_powershell_logging: true
-winlogbeat_enable_adcs_auditing: true
-winlogbeat_enable_ntlm_incoming_audit: true
-winlogbeat_enable_dcsync_sacl: true
-winlogbeat_collect_iis: true
+# Direct forwarding: no Deployment Server. Environment variables keep the UF
+# destination synchronized with the optional indexer bootstrap role.
+splunk_uf_receiver_host: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_RECEIVER_HOST')
+     | default(lookup('ansible.builtin.env', 'GOAD_SPLUNK_INDEXER_HOST'), true)
+     | default('192.168.58.10', true) }}
+splunk_uf_receiver_port: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_RECEIVER_PORT')
+     | default('9997', true) | int }}
+splunk_uf_output_group: "goad_indexer"
+splunk_uf_use_ack: true
+splunk_uf_require_receiver: false
 
-filebeat_service:
-  install_path_64: "C:\\Program Files\\Elastic\\filebeat"
-  version: "7.17.6"
-  download: true
+splunk_uf_windows_index: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_WINDOWS_INDEX')
+     | default('wineventlog', true) }}
+splunk_uf_web_index: >-
+  {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_WEB_INDEX')
+     | default('web', true) }}
+splunk_uf_app_name: "goad_inputs"
+splunk_uf_app_local_dir: >-
+  {{ splunk_uf_install_dir }}\\etc\\apps\\{{ splunk_uf_app_name }}\\local
 
-winlogbeat_enable_event_channels:
+splunk_uf_collect_iis: true
+splunk_uf_enable_dns_analytical: true
+splunk_uf_configure_advanced_audit_policy: true
+splunk_uf_include_process_command_line: true
+splunk_uf_force_advanced_audit_policy: true
+splunk_uf_enable_powershell_logging: true
+splunk_uf_enable_adcs_auditing: true
+splunk_uf_enable_ntlm_incoming_audit: true
+splunk_uf_enable_dcsync_sacl: true
+
+splunk_uf_enable_event_channels:
   - Windows PowerShell
   - ForwardedEvents
   - Microsoft-Windows-PowerShell/Operational
@@ -40,14 +67,14 @@ winlogbeat_enable_event_channels:
   - Microsoft-Windows-Windows Firewall With Advanced Security/Firewall
   - Microsoft-Windows-Windows Defender/Operational
 
-winlogbeat_event_log_sizes:
+splunk_uf_event_log_sizes:
   - { name: Security, bytes: 1073741824 }
   - { name: Directory Service, bytes: 268435456 }
   - { name: Microsoft-Windows-Sysmon/Operational, bytes: 268435456 }
   - { name: Microsoft-Windows-PowerShell/Operational, bytes: 134217728 }
   - { name: Microsoft-Windows-DNSServer/Analytical, bytes: 268435456 }
 
-winlogbeat_advanced_audit_policy:
+splunk_uf_advanced_audit_policy:
   - { subcategory: "Kerberos Authentication Service", success: enable, failure: enable }
   - { subcategory: "Kerberos Service Ticket Operations", success: enable, failure: enable }
   - { subcategory: "Credential Validation", success: enable, failure: enable }

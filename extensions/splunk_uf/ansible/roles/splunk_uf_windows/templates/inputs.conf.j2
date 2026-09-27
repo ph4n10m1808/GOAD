@@ -1,0 +1,179 @@
+# Managed by the GOAD splunk_uf extension.
+# Baseline adapted from VNCS_Work/Task3/GOAD/splunk_config/windows_uf.
+
+[WinEventLog://Security]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://System]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Application]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Directory Service]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-Sysmon/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-PowerShell/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Windows PowerShell]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://ForwardedEvents]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-TaskScheduler/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-WMI-Activity/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-WinRM/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-Kerberos-Key-Distribution-Center/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-Security-Kerberos/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-SMBServer/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-SMBServer/Audit]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-SMBServer/Connectivity]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-SMBServer/Security]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-NTLM/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-TerminalServices-LocalSessionManager/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-Windows Firewall With Advanced Security/Firewall]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-Windows Defender/Operational]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+[WinEventLog://Microsoft-Windows-DNSServer/Analytical]
+disabled = 0
+index = {{ splunk_uf_windows_index }}
+renderXml = true
+current_only = 0
+checkpointInterval = 5
+
+{% if splunk_uf_collect_iis | bool %}
+[monitor://C:\inetpub\logs\LogFiles\W3SVC*\u_ex*.log]
+disabled = 0
+index = {{ splunk_uf_web_index }}
+sourcetype = iis
+source = iis
+crcSalt = <SOURCE>
+{% endif %}
