@@ -1,0 +1,201 @@
+# Validate storage for commands that create or restart guests.
+# Keep status, halt and destroy usable when the pool needs repair.
+if (ARGV & %w[up reload resume]).any?
+  require 'open3'
+  require 'rexml/document'
+  begin
+    pool_xml, pool_status = Open3.capture2('virsh', '-c', 'qemu:///system', 'pool-dumpxml', 'GOAD')
+    pool_path = pool_status.success? ? REXML::XPath.first(REXML::Document.new(pool_xml), '/pool/target/path')&.text : nil
+  rescue SystemCallError, REXML::ParseException => error
+    abort "Cannot inspect GOAD storage pool: #{error.message}"
+  end
+  unless pool_path == '/mnt/SSD_DATA/Virtualization/KVM/GOAD'
+    abort 'GOAD storage pool must target /mnt/SSD_DATA/Virtualization/KVM/GOAD. Create or correct the pool first.'
+  end
+end
+
+Vagrant.configure("2") do |config|
+
+ENV['VAGRANT_DEFAULT_PROVIDER'] = 'libvirt'
+
+virtio_iso = ENV.fetch(
+  'GOAD_VIRTIO_WIN_ISO',
+  '/mnt/SSD_DATA/Virtualization/KVM/virtio-win-0.1.271.iso'
+)
+virtio_state_dir = File.join(__dir__, '.goad', 'virtio')
+# Non-GOAD-Light labs retain their existing SOC subnet route unless explicitly
+# overridden. GOAD-Light has a directly attached SOC NIC and passes no route.
+soc_network_prefix = ENV.fetch('GOAD_SOC_NETWORK', '192.168.50.0/24')
+# Keep each lab instance together when virt-manager sorts guests by name.
+lab_instance_id = File.basename(File.dirname(__dir__)).split('-').first
+lab_prefix = "{{lab_name}}-#{lab_instance_id}"
+
+{{lab}}
+
+{{extensions}}
+
+{% if use_provisioning_vm %}
+boxes.append(
+    { :name => "PROVISIONING",
+      :ip => "{{ip_range}}.3",
+      :box => "bento/ubuntu-22.04",
+      :os => "linux",
+      :cpus => 2,
+      :mem => 2000,
+      :forwarded_port => [ {:guest => 22, :host => 2210, :id => "ssh"} ]
+    }
+)
+{% endif %}
+
+  config.vm.boot_timeout = 1200
+  config.vm.graceful_halt_timeout = 600
+  # vagrant-mutate intentionally generates a minimal provider box and does
+  # not copy communicator settings from the source box.
+  config.winrm.username = "vagrant"
+  config.winrm.password = "vagrant"
+  # Vagrant's WinRM communicator calls this option max_tries (the winrm gem
+  # internally maps it to retry_limit). An unknown retry_limit setting here
+  # does not control communicator retries.
+  config.winrm.max_tries = 60
+  config.winrm.retry_delay = 10
+  config.winrm.timeout = 600
+  config.winrm.ssl_peer_verification = false
+
+  boxes.each do |box|
+    config.vm.define box[:name] do |target|
+      is_linux = box[:os] == "linux"
+      # One queue per vCPU avoids a single network queue becoming the bottleneck.
+      virtio_queues = [box[:cpus].to_i, 1].max
+      vm_state_dir = File.join(virtio_state_dir, box[:name])
+      storage_ready = File.file?(File.join(vm_state_dir, 'storage-ready'))
+      private_network_ready = storage_ready && File.file?(File.join(vm_state_dir, 'private-network-ready'))
+      network_ready = private_network_ready && File.file?(File.join(vm_state_dir, 'network-ready'))
+
+      target.vm.provider "libvirt" do |libvirt|
+        libvirt.memory = box[:mem]
+        libvirt.cpus = box[:cpus]
+        libvirt.cpu_mode = "host-passthrough"
+        # Expose a simple topology to Windows and let the host schedule vCPUs
+        # across its physical cores and SMT threads.
+        libvirt.cputopology :sockets => 1, :cores => box[:cpus], :threads => 1
+
+        if is_linux
+          libvirt.nic_model_type = "virtio"
+          libvirt.management_network_model_type = "virtio"
+          libvirt.disk_bus = "virtio"
+          libvirt.disk_device = "vda"
+          libvirt.disk_driver :cache => 'none', :io => 'native',
+            :discard => 'unmap', :detect_zeroes => 'unmap'
+        elsif storage_ready
+          libvirt.nic_model_type = private_network_ready ? "virtio" : "e1000"
+          libvirt.management_network_model_type = network_ready ? "virtio" : "e1000"
+          # storage-ready is written only after the in-guest driver check and
+          # the boot disk transition both succeed.
+          libvirt.disk_bus = "virtio"
+          libvirt.disk_device = "vda"
+          libvirt.disk_driver :cache => 'none', :io => 'native',
+            :discard => 'unmap', :detect_zeroes => 'unmap'
+        else
+          raise "VirtIO ISO not found: #{virtio_iso}" unless File.file?(virtio_iso)
+
+          libvirt.nic_model_type = "e1000"
+          libvirt.management_network_model_type = "e1000"
+          libvirt.disk_bus = "ide"
+          libvirt.disk_device = "hda"
+          libvirt.storage :file,
+            :device => :cdrom, :type => 'raw', :bus => 'ide',
+            :dev => 'hdc', :path => virtio_iso
+          libvirt.storage :file,
+            :type => 'qcow2', :size => '1G', :bus => 'virtio',
+            :device => 'vdb'
+        end
+        libvirt.storage_pool_name = 'GOAD'
+        libvirt.snapshot_pool_name = 'GOAD'
+        libvirt.default_prefix = lab_prefix
+        unless is_linux
+          # libvirt requires this timer whenever the Hyper-V stimer feature is enabled.
+          libvirt.clock_timer :name => 'hypervclock', :present => 'yes'
+          libvirt.hyperv_feature :name => 'stimer',  :state => 'on'
+          libvirt.hyperv_feature :name => 'relaxed', :state => 'on'
+          libvirt.hyperv_feature :name => 'vapic',   :state => 'on'
+          libvirt.hyperv_feature :name => 'vpindex', :state => 'on'
+          libvirt.hyperv_feature :name => 'synic',   :state => 'on'
+        end
+      end
+
+      target.vm.box_download_insecure = box[:box]
+      target.vm.box = box[:box]
+      if box.has_key?(:box_version)
+        target.vm.box_version = box[:box_version]
+      end
+
+      target.vm.synced_folder '.', '/vagrant', disabled: true
+      target.vm.network :private_network,
+        ip: box[:ip],
+        libvirt__dhcp_enabled: false,
+        libvirt__forward_mode: "none",
+        libvirt__driver_queues: ((is_linux || network_ready) ? virtio_queues : nil)
+
+      # GOAD-Light supplies a dedicated third NIC for the SOC network. It
+      # leaves the regular private NIC untouched, so AD/DNS keep using the
+      # lab's existing {{ip_range}}.x addresses.
+      if box.has_key?(:soc_ip)
+        target.vm.network :private_network,
+          ip: box[:soc_ip],
+          mac: box[:soc_mac],
+          auto_config: false,
+          libvirt__network_name: box[:soc_network],
+          libvirt__dhcp_enabled: false,
+          libvirt__driver_queues: ((is_linux || network_ready) ? virtio_queues : nil)
+      end
+
+      if box[:os] == "windows"
+        target.vm.guest = :windows
+        target.vm.communicator = "winrm"
+        unless storage_ready
+          # The vagrant account already has a high-integrity Administrator token.
+          # winrm-elevated cannot resolve its unqualified Scheduled Task UserId.
+          target.vm.provision :shell, :path => "../../../vagrant/Install-VirtIO.ps1", privileged: false
+        end
+        if private_network_ready
+          target.vm.provision :shell,
+            :path => "../../../vagrant/Configure-VirtIOPrivateNetwork.ps1",
+            :args => [box[:ip], "24", "{{ip_range}}.1",
+                      (box.has_key?(:soc_ip) ? "" : soc_network_prefix),
+                      (box.has_key?(:soc_mac) ? box[:soc_mac] : "")],
+            privileged: false,
+            run: "always"
+        end
+        # The NIC exists from the first boot, but Windows can only configure it
+        # after the host-side transition has switched all private NICs to
+        # VirtIO. Running this against the bootstrap e1000 NIC would make a
+        # fresh GOAD-Light install fail before the transition can happen.
+        if box.has_key?(:soc_ip) && network_ready
+          target.vm.provision :shell,
+            :path => "../../../vagrant/Configure-SocPrivateNetwork.ps1",
+            :args => [box[:soc_ip], "24", box[:soc_gateway], "{{ip_range}}.1", box[:soc_mac]],
+            privileged: false,
+            run: "always"
+        end
+        target.vm.provision :shell,
+          :path => "../../../vagrant/Configure-TimeZone.ps1",
+          privileged: false,
+          run: "always"
+        target.vm.provision :shell, :path => "../../../vagrant/Install-WMF3Hotfix.ps1", privileged: false
+        target.vm.provision :shell, :path => "../../../vagrant/ConfigureRemotingForAnsible.ps1", privileged: false
+      else
+        target.vm.communicator = "ssh"
+      end
+
+      if box.has_key?(:forwarded_port)
+        box[:forwarded_port].each do |forwarded_port|
+          target.vm.network :forwarded_port,
+            guest: forwarded_port[:guest],
+            host: forwarded_port[:host],
+            host_ip: "127.0.0.1",
+            id: forwarded_port[:id]
+        end
+      end
+    end
+  end
+end

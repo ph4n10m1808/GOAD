@@ -2,6 +2,7 @@ import sys
 import os
 from goad.command.cmd import Command
 import subprocess
+import xml.etree.ElementTree as ET
 
 from goad.goadpath import GoadPath
 from goad.log import Log
@@ -61,6 +62,103 @@ class LinuxCommand(Command):
 
     def check_virtualbox(self):
         return self.is_in_path('VBoxManage')
+
+    def check_libvirt(self, min_disk_gb=120):
+        checks = [
+            self.is_in_path('virsh'),
+            self.is_in_path('qemu-system-x86_64'),
+        ]
+        if not all(checks):
+            return False
+        if not self._validate_libvirt_pool_path():
+            return False
+
+        pool_name = 'GOAD'
+        result = subprocess.run(
+            ['virsh', '-c', 'qemu:///system', 'pool-info', '--bytes', pool_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if result.returncode != 0:
+            Log.error(f'Cannot access libvirt storage pool {pool_name}: {result.stderr.strip()}')
+            return False
+
+        available = None
+        active = False
+        for line in result.stdout.splitlines():
+            key, _, value = line.partition(':')
+            if key.strip() == 'State':
+                active = value.strip() == 'running'
+            elif key.strip() == 'Available':
+                try:
+                    available = int(value.strip())
+                except ValueError:
+                    available = None
+
+        if not active:
+            Log.error(f'libvirt storage pool {pool_name} is not running')
+            return False
+        if available is None:
+            Log.error(f'Cannot determine free space for libvirt storage pool {pool_name}')
+            return False
+
+        free_disk_gb = available / (1024 ** 3)
+        if free_disk_gb < min_disk_gb:
+            Log.error(f'not enough free space in libvirt pool {pool_name}, only {free_disk_gb:.1f} GB available')
+            return False
+
+        connection = subprocess.run(
+            ['virsh', '-c', 'qemu:///system', 'list', '--all'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if connection.returncode != 0:
+            Log.error(f'Cannot connect to qemu:///system: {connection.stderr.strip()}')
+            return False
+
+        Log.success(f'libvirt qemu:///system and storage pool {pool_name} are ready ({free_disk_gb:.1f} GB free)')
+        return True
+
+    def _validate_libvirt_pool_path(self):
+        expected = '/mnt/SSD_DATA/Virtualization/KVM/GOAD'
+        try:
+            result = subprocess.run(
+                ['virsh', '-c', 'qemu:///system', 'pool-dumpxml', 'GOAD'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+        except OSError as error:
+            Log.error(f'Cannot inspect GOAD storage pool: {error}')
+            return False
+        if result.returncode != 0:
+            Log.error(f'Cannot inspect GOAD storage pool: {result.stderr.strip()}')
+            return False
+        try:
+            actual = ET.fromstring(result.stdout).findtext('target/path')
+        except ET.ParseError:
+            actual = None
+        if actual != expected:
+            Log.error(f'GOAD storage pool must target {expected}; found {actual!r}. '
+                      'Create or correct the pool before starting VMs.')
+            return False
+        return True
+
+    def refresh_libvirt_pool(self):
+        if not self._validate_libvirt_pool_path():
+            return False
+        pool_name = 'GOAD'
+        result = subprocess.run(
+            ['virsh', '-c', 'qemu:///system', 'pool-refresh', pool_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if result.returncode != 0:
+            Log.error(f'Cannot refresh libvirt storage pool {pool_name}: {result.stderr.strip()}')
+            return False
+        Log.success(f'libvirt storage pool {pool_name} refreshed')
+        return True
 
     def check_ludus(self):
         return self.is_in_path('ludus')
@@ -129,4 +227,3 @@ class LinuxCommand(Command):
             Log.error(f"An error occurred while running the command: {e}")
             return False
         return result.returncode == 0
-

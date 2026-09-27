@@ -37,6 +37,10 @@ class WslCommand(Command):
     def check_virtualbox(self):
         return self.file_exist("/mnt/c/Program Files/Oracle/VirtualBox/VBoxManage.exe")
 
+    def check_libvirt(self, min_disk_gb=120):
+        Log.error('The local libvirt provider is not supported through Windows Vagrant from WSL')
+        return False
+
     def check_terraform(self):
         return self.is_in_path('terraform.exe')
 

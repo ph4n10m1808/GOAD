@@ -6,6 +6,7 @@ class Dependencies:
     vmware_enabled = True
     vmware_esxi_enabled = True
     virtualbox_enabled = True
+    libvirt_enabled = False if Utils.is_windows() or Utils.is_wsl() else True
     azure_enabled = True
     aws_enabled = True
     proxmox_enabled = True

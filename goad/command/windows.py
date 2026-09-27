@@ -44,6 +44,10 @@ class WindowsCommand(Command):
     def check_virtualbox(self):
         return self.file_exist("c:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe")
 
+    def check_libvirt(self, min_disk_gb=120):
+        Log.error('The local libvirt provider is supported on Linux only')
+        return False
+
     def check_terraform(self):
         return self.is_in_path('terraform.exe')
 

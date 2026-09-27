@@ -9,6 +9,7 @@ The goad management script is now written in :simple-python: python to permit mo
 
 - Installation depend of the provider you use, please follow the appropriate guide :
     - :simple-virtualbox: [Install with Virtualbox](../providers/virtualbox.md)
+    - [Install with Libvirt / KVM](../providers/libvirt.md)
     - :simple-vmware: [Install with VmWare](../providers/vmware.md)
     - :simple-proxmox: [Install with Proxmox](../providers/proxmox.md)
     - :material-microsoft-azure: [Install with Azure](../providers/azure.md)
@@ -56,7 +57,7 @@ The goad management script is now written in :simple-python: python to permit mo
 - GOAD script cover the providing and provisioning part
 
 - The install script take multiple parameters:
-    - `-p`  : the provider to use (vmware/virtualbox/proxmox/ludus/azure/aws)
+    - `-p`  : the provider to use (vmware/virtualbox/libvirt/proxmox/ludus/azure/aws)
     - `-l`  : the lab to install (GOAD/GOAD-Light/SCCM/NHA/MINILAB)
     - `-m`  : the method of installation (local/runner/docker/remote), most of the time don't change it
     - `-ip` : the ip range to use
@@ -144,7 +145,7 @@ requests
 [default]
 ; lab: goad / goad-light / minilab / nha / sccm
 lab = GOAD
-; provider : virtualbox / vmware / aws / azure / proxmox
+; provider : virtualbox / libvirt / vmware / aws / azure / proxmox
 provider = vmware
 ; provisioner method : local / remote
 provisioner = local

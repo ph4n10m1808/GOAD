@@ -19,12 +19,13 @@ DEBUG = 1
 # providers
 AWS = 'aws'
 VIRTUALBOX = 'virtualbox'
+LIBVIRT = 'libvirt'
 AZURE = 'azure'
 VMWARE = 'vmware'
 VMWARE_ESXI = 'vmware_esxi'
 PROXMOX = 'proxmox'
 LUDUS = 'ludus'
-ALLOWED_PROVIDERS = [AWS, VIRTUALBOX, AZURE, VMWARE, VMWARE_ESXI, PROXMOX, LUDUS]
+ALLOWED_PROVIDERS = [AWS, VIRTUALBOX, LIBVIRT, AZURE, VMWARE, VMWARE_ESXI, PROXMOX, LUDUS]
 
 # provisioning method
 PROVISIONING_LOCAL = 'local'
@@ -71,6 +72,14 @@ class SingletonMeta(type):
 
 
 class Utils:
+
+    @staticmethod
+    def format_elapsed_time(elapsed_seconds):
+        """Format a duration as HH:MM:SS without applying a timezone."""
+        total_seconds = max(0, int(elapsed_seconds))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
 
     @staticmethod
     def is_wsl():

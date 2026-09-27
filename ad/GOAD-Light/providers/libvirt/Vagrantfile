@@ -1,0 +1,5 @@
+boxes = [
+  { :name => "GOAD-Light-DC01",  :ip => "{{ip_range}}.10", :soc_ip => "192.168.50.20", :soc_gateway => "192.168.50.1", :soc_mac => "52:54:00:50:20:20", :soc_network => "soc-dedicated-es-private", :box => "StefanScherer/windows_2019", :box_version => "2021.05.15", :os => "windows", :cpus => 3, :mem => 3072},
+  { :name => "GOAD-Light-DC02",  :ip => "{{ip_range}}.11", :soc_ip => "192.168.50.21", :soc_gateway => "192.168.50.1", :soc_mac => "52:54:00:50:20:21", :soc_network => "soc-dedicated-es-private", :box => "StefanScherer/windows_2019", :box_version => "2021.05.15", :os => "windows", :cpus => 3, :mem => 3072},
+  { :name => "GOAD-Light-SRV02", :ip => "{{ip_range}}.22", :soc_ip => "192.168.50.22", :soc_gateway => "192.168.50.1", :soc_mac => "52:54:00:50:20:22", :soc_network => "soc-dedicated-es-private", :box => "StefanScherer/windows_2019", :box_version => "2021.05.15", :os => "windows", :cpus => 4, :mem => 7168},
+]

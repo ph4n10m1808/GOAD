@@ -1,0 +1,3 @@
+[default]
+dc01 ansible_host={{ip_range}}.30 dns_domain=dc01 dict_key=dc01
+ws01 ansible_host={{ip_range}}.31 dns_domain=dc01 dict_key=ws01

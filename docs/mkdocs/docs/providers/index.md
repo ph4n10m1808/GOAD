@@ -5,6 +5,7 @@
 - Goad actually support the following providers:
     - On your own computer :
         - :simple-virtualbox: [Virtualbox](virtualbox.md)
+        - [Libvirt / KVM](libvirt.md)
         - :simple-vmware: [VmWare](vmware.md)
 
     - Cloud :

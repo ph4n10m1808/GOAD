@@ -63,6 +63,8 @@ class LabInstances:
             provider = f'[deep_sky_blue1]{provider}[/deep_sky_blue1]'
         elif provider == VIRTUALBOX:
             provider = f'[dodger_blue3]{provider}[/dodger_blue3]'
+        elif provider == LIBVIRT:
+            provider = f'[magenta3]{provider}[/magenta3]'
         elif provider == VMWARE:
             provider = f'[cyan3]{provider}[/cyan3]'
         elif provider == VMWARE_ESXI:

@@ -58,6 +58,12 @@ class Command:
     def check_virtualbox(self):
         pass
 
+    def check_libvirt(self, min_disk_gb=120):
+        pass
+
+    def refresh_libvirt_pool(self):
+        pass
+
     def check_terraform(self):
         return self.is_in_path(self.terraform_bin)
 
@@ -136,16 +142,53 @@ class Command:
         return result.returncode == 0
 
     def run_vagrant(self, args, path):
-        result = None
+        result = self.run_vagrant_result(args, path, capture_output=False)
+        return result is not None and result.returncode == 0
+
+    def run_vagrant_result(self, args, path, capture_output=True):
         try:
-            command = [self.vagrant_bin]
-            command += args
+            command = [self.vagrant_bin] + args
             Log.info('CWD: ' + Utils.get_relative_path(str(path)))
             Log.cmd(' '.join(command))
-            result = subprocess.run(command, cwd=path, stderr=sys.stderr, stdout=sys.stdout)
-        except subprocess.CalledProcessError as e:
-            Log.error(f"An error occurred while running the command: {e}")
-        return result.returncode == 0
+            if capture_output:
+                return subprocess.run(
+                    command,
+                    cwd=path,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            return subprocess.run(
+                command,
+                cwd=path,
+                stderr=sys.stderr,
+                stdout=sys.stdout,
+            )
+        except OSError as e:
+            Log.error(f"Unable to run Vagrant: {e}")
+            return None
+
+    def run_process(self, args, path=None, capture_output=True):
+        """Run an argument-list command without invoking a shell."""
+        try:
+            Log.cmd(' '.join(str(arg) for arg in args))
+            if capture_output:
+                return subprocess.run(
+                    args,
+                    cwd=path,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            return subprocess.run(
+                args,
+                cwd=path,
+                stderr=sys.stderr,
+                stdout=sys.stdout,
+            )
+        except OSError as e:
+            Log.error(f"Unable to run command {args[0]}: {e}")
+            return None
 
     def run_terraform(self, args, path):
         result = None

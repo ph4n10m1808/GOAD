@@ -7,6 +7,8 @@ if Dependencies.vmware_esxi_enabled:
     from goad.provider.vagrant.vmware_esxi import VmwareEsxiProvider
 if Dependencies.virtualbox_enabled:
     from goad.provider.vagrant.virtualbox import VirtualboxProvider
+if Dependencies.libvirt_enabled:
+    from goad.provider.vagrant.libvirt import LibvirtProvider
 if Dependencies.azure_enabled:
     from goad.provider.terraform.azure import AzureProvider
 if Dependencies.aws_enabled:
@@ -24,6 +26,8 @@ class ProviderFactory:
         provider = None
         if provider_name == VIRTUALBOX and Dependencies.virtualbox_enabled:
             provider = VirtualboxProvider(lab_name)
+        elif provider_name == LIBVIRT and Dependencies.libvirt_enabled:
+            provider = LibvirtProvider(lab_name)
         elif provider_name == VMWARE and Dependencies.vmware_enabled:
             provider = VmwareProvider(lab_name)
         elif provider_name == VMWARE_ESXI and Dependencies.vmware_esxi_enabled:
