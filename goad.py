@@ -459,6 +459,10 @@ class Goad(cmd.Cmd):
         return self.complete_load(text, line, begidx, endidx)
 
     def do_load(self, arg):
+        self.load_instance(arg)
+
+    def load_instance(self, arg):
+        """Load an instance and report success without stopping the interactive console."""
         if arg == '':
             Log.error('missing instance id argument')
             Log.info(f'use_instance <instance_id>')
@@ -550,7 +554,7 @@ if __name__ == '__main__':
         goad.cmdloop()
     else:
         if args.instance is not None:
-            if not goad.do_load(args.instance):
+            if not goad.load_instance(args.instance):
                 sys.exit(1)
 
         if args.run_playbook is not None or args.ansible_only is not None:
