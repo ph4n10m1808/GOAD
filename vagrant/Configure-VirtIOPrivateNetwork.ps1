@@ -12,7 +12,7 @@ param(
     [ValidatePattern('^\d{1,3}(\.\d{1,3}){3}$')]
     [string]$GatewayAddress,
 
-    [ValidatePattern('^$|^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$')]
+    [ValidatePattern('^$|^none$|^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$')]
     [string]$SocNetworkPrefix = "192.168.50.0/24",
 
     [ValidatePattern('^$|^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')]
@@ -20,6 +20,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$SocNetworkPrefix = if ($SocNetworkPrefix -eq "none") { "" } else { $SocNetworkPrefix }
 $stateDirectory = "C:\ProgramData\GOAD"
 $stateFile = Join-Path $stateDirectory "virtio-private-network-ready"
 

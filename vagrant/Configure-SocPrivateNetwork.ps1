@@ -105,9 +105,16 @@ if ((Get-SocPersistentGatewayMetric) -ne $socGatewayMetric) {
     throw "Persistent SOC gateway through $GatewayAddress failed verification"
 }
 
-# Remove the legacy host route installed before GOAD-Light had a directly
-# connected SOC NIC. The on-link 192.168.50.0/24 route now wins naturally.
-& route.exe DELETE 192.168.50.10 MASK 255.255.255.255 $LegacyGatewayAddress | Out-Null
+# Remove legacy SOC routes installed before GOAD-Light had a directly connected
+# SOC NIC. Otherwise their low metric overrides the on-link 192.168.50.0/24
+# route and sends Fleet traffic through the AD lab adapter.
+@('192.168.50.0/24', '192.168.50.10/32') | ForEach-Object {
+    Get-NetRoute -AddressFamily IPv4 `
+        -DestinationPrefix $_ `
+        -NextHop $LegacyGatewayAddress `
+        -ErrorAction SilentlyContinue |
+        Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
+}
 
 $configuredAddress = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -IPAddress $IPAddress -ErrorAction SilentlyContinue
 if (-not $configuredAddress) {

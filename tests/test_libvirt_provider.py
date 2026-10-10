@@ -54,15 +54,19 @@ class LibvirtProviderTest(unittest.TestCase):
         soc_provisioner = (
             PROJECT_ROOT / "vagrant/Configure-SocPrivateNetwork.ps1"
         ).read_text()
+        nat_dns_provisioner = (
+            PROJECT_ROOT / "vagrant/Configure-NatDns.ps1"
+        ).read_text()
 
         self.assertIn("GOAD_SOC_NETWORK", template)
         self.assertIn(
-            '(box.has_key?(:soc_ip) ? "" : soc_network_prefix),',
+            '(box.has_key?(:soc_ip) ? "none" : soc_network_prefix),',
             template,
         )
         self.assertIn('(box.has_key?(:soc_mac) ? box[:soc_mac] : "")]', template)
         self.assertIn('if box.has_key?(:soc_ip) && network_ready', template)
         self.assertIn('$normalizedExcludedMac', provisioner)
+        self.assertIn('$SocNetworkPrefix -eq "none"', provisioner)
         self.assertIn('Set-PersistentRoute -Prefix "0.0.0.0/0" -Destination "0.0.0.0" -Mask "0.0.0.0"', provisioner)
         self.assertIn('"192.168.50.0/24"', provisioner)
         self.assertIn("route.exe -p ADD", provisioner)
@@ -77,6 +81,15 @@ class LibvirtProviderTest(unittest.TestCase):
         self.assertIn("METRIC $socGatewayMetric IF $adapter.ifIndex", soc_provisioner)
         self.assertIn("RegisterThisConnectionsAddress $false", soc_provisioner)
         self.assertIn("UseSuffixWhenRegistering $false", soc_provisioner)
+        self.assertIn("Get-NetRoute -AddressFamily IPv4", soc_provisioner)
+        self.assertIn("@('192.168.50.0/24', '192.168.50.10/32')", soc_provisioner)
+        self.assertIn("Remove-NetRoute -Confirm:$false", soc_provisioner)
+        self.assertNotIn("route.exe DELETE 192.168.50.10", soc_provisioner)
+        self.assertIn("-PrefixOrigin Dhcp", nat_dns_provisioner)
+        self.assertIn("$currentServers + $AdditionalDnsServer", nat_dns_provisioner)
+        self.assertIn("Select-Object -Unique", nat_dns_provisioner)
+        self.assertIn("Set-DnsClientServerAddress", nat_dns_provisioner)
+        self.assertIn("$AdditionalDnsServer -notin $configuredServers", nat_dns_provisioner)
 
     def test_install_selects_libvirt_explicitly(self):
         with tempfile.TemporaryDirectory() as provider_path:
@@ -138,8 +151,9 @@ class LibvirtProviderTest(unittest.TestCase):
 
             self.assertIn("VAGRANT_DEFAULT_PROVIDER'] = 'libvirt'", rendered)
             self.assertNotIn("VAGRANT_NO_PARALLEL", rendered)
-            self.assertIn("libvirt.storage_pool_name = 'GOAD'", rendered)
-            self.assertIn("libvirt.snapshot_pool_name = 'GOAD'", rendered)
+            self.assertIn("libvirt.storage_pool_name = goad_storage_pool", rendered)
+            self.assertIn("libvirt.snapshot_pool_name = goad_storage_pool", rendered)
+            self.assertIn(f'goad_storage_pool = "{lab_dir.name}" == "GOAD-Light"', rendered)
             self.assertNotIn("GOAD_LIBVIRT_COMPATIBILITY", rendered)
             self.assertIn("GOAD_VIRTIO_WIN_ISO", rendered)
             self.assertIn('libvirt.cpu_mode = "host-passthrough"', rendered)
@@ -168,12 +182,14 @@ class LibvirtProviderTest(unittest.TestCase):
             self.assertIn("if private_network_ready", rendered)
             self.assertNotIn("if private_network_ready && !network_ready", rendered)
             self.assertIn(
-                '(box.has_key?(:soc_ip) ? "" : soc_network_prefix),',
+                '(box.has_key?(:soc_ip) ? "none" : soc_network_prefix),',
                 rendered,
             )
             self.assertIn('(box.has_key?(:soc_mac) ? box[:soc_mac] : "")]', rendered)
             self.assertIn('run: "always"', rendered)
             self.assertIn("Configure-TimeZone.ps1", rendered)
+            self.assertIn("Configure-NatDns.ps1", rendered)
+            self.assertIn(':args => ["1.1.1.1"]', rendered)
             self.assertIn("config.winrm.max_tries = 60", rendered)
             self.assertIn("config.winrm.timeout = 600", rendered)
             self.assertIn("config.vm.boot_timeout = 1200", rendered)
@@ -257,6 +273,64 @@ class LibvirtProviderTest(unittest.TestCase):
             self.assertTrue(
                 Path(provider_path, ".goad", "virtio", "DC01", "pre-virtio-domain.xml").is_file()
             )
+
+    def test_offline_storage_tuning_preserves_identity_and_is_idempotent(self):
+        from unittest.mock import Mock
+        xml = '<domain><uuid>same-uuid</uuid><vcpu>3</vcpu><devices><disk device="disk"><driver type="qcow2"/><source file="/pool/os.img"/><target bus="virtio" dev="vda"/><alias name="ua-box-volume-0"/></disk></devices></domain>'
+        with tempfile.TemporaryDirectory() as path:
+            provider = LibvirtProvider("GOAD")
+            provider.path = path
+            id_file = Path(path) / '.vagrant/machines/DC01/libvirt/id'
+            id_file.parent.mkdir(parents=True)
+            id_file.write_text('same-uuid')
+            current = [xml]
+            provider._dump_domain_xml = lambda name: current[0]
+            provider._virsh = lambda args: SimpleNamespace(returncode=0, stdout=('Managed save: no' if args[0] == 'dominfo' else 'shut off'))
+            def define(name, text):
+                current[0] = text
+                return True
+            provider._define_domain_xml = Mock(side_effect=define)
+            self.assertTrue(provider.tune_storage('DC01'))
+            self.assertTrue(provider.tune_storage('DC01'))
+            provider._define_domain_xml.assert_called_once()
+            tree = ET.fromstring(current[0])
+            self.assertEqual(tree.findtext('uuid'), 'same-uuid')
+            self.assertEqual(tree.findtext('iothreads'), '1')
+            disk = tree.find('./devices/disk')
+            self.assertEqual(disk.find('source').get('file'), '/pool/os.img')
+            self.assertEqual(disk.find('driver').get('queues'), '2')
+            self.assertEqual(disk.find('driver').get('iothread'), '1')
+            self.assertEqual((provider._state_dir('DC01') / 'pre-iothread-domain.xml').read_text(), xml)
+
+    def test_storage_tuning_skips_running_saved_and_bootstrap_guests(self):
+        from unittest.mock import Mock
+        for state, saved, bus in [('running', 'no', 'virtio'), ('shut off', 'yes', 'virtio'), ('shut off', 'no', 'ide')]:
+            with self.subTest(state=state, saved=saved, bus=bus), tempfile.TemporaryDirectory() as path:
+                provider = LibvirtProvider('GOAD')
+                provider.path = path
+                id_file = Path(path) / '.vagrant/machines/DC01/libvirt/id'
+                id_file.parent.mkdir(parents=True)
+                id_file.write_text('uuid')
+                provider._virsh = lambda args: SimpleNamespace(returncode=0, stdout=(f'Managed save: {saved}' if args[0] == 'dominfo' else state))
+                provider._dump_domain_xml = lambda name: f'<domain><devices><disk device="disk"><target bus="{bus}"/><alias name="ua-box-volume-0"/></disk></devices></domain>'
+                provider._define_domain_xml = Mock()
+                self.assertTrue(provider.tune_storage('DC01'))
+                provider._define_domain_xml.assert_not_called()
+
+    def test_storage_tuning_failure_prevents_start(self):
+        provider = LibvirtProvider('GOAD')
+        provider.path = '/provider'
+        provider.command = FakeCommand()
+        provider.tune_storage = lambda name: False
+        self.assertFalse(provider._up_in_batches(['DC01', 'DC02']))
+        self.assertFalse(provider.start_vm('DC01'))
+        self.assertEqual(provider.command.calls, [('pool-refresh', None)])
+
+    def test_storage_tuning_preserves_custom_iothread_mapping(self):
+        tree = ET.fromstring('<domain><iothreads>2</iothreads><devices><disk><driver iothread="2" queues="4"/></disk></devices></domain>')
+        before = ET.tostring(tree)
+        LibvirtProvider._configure_disk_iothread(tree, tree.find('./devices/disk'))
+        self.assertEqual(ET.tostring(tree), before)
 
     def test_network_transition_enables_both_virtio_nics_with_one_reboot(self):
         with tempfile.TemporaryDirectory() as provider_path:

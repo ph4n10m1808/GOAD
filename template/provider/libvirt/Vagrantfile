@@ -1,16 +1,23 @@
+# GOAD-Light always uses the second SSD; other labs retain their pool.
+goad_storage_pool = "{{lab_name}}" == "GOAD-Light" ? "GOAD-Light" : "GOAD"
+goad_storage_path = goad_storage_pool == "GOAD-Light" ? "/mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light" : "/mnt/SSD_DATA/Virtualization/KVM/GOAD"
+
 # Validate storage for commands that create or restart guests.
 # Keep status, halt and destroy usable when the pool needs repair.
 if (ARGV & %w[up reload resume]).any?
+  if goad_storage_pool == "GOAD-Light" && !system('mountpoint', '--quiet', '/mnt/SSD_DATA_1')
+    abort 'GOAD-Light requires /mnt/SSD_DATA_1 to be mounted.'
+  end
   require 'open3'
   require 'rexml/document'
   begin
-    pool_xml, pool_status = Open3.capture2('virsh', '-c', 'qemu:///system', 'pool-dumpxml', 'GOAD')
+    pool_xml, pool_status = Open3.capture2('virsh', '-c', 'qemu:///system', 'pool-dumpxml', goad_storage_pool)
     pool_path = pool_status.success? ? REXML::XPath.first(REXML::Document.new(pool_xml), '/pool/target/path')&.text : nil
   rescue SystemCallError, REXML::ParseException => error
-    abort "Cannot inspect GOAD storage pool: #{error.message}"
+    abort "Cannot inspect #{goad_storage_pool} storage pool: #{error.message}"
   end
-  unless pool_path == '/mnt/SSD_DATA/Virtualization/KVM/GOAD'
-    abort 'GOAD storage pool must target /mnt/SSD_DATA/Virtualization/KVM/GOAD. Create or correct the pool first.'
+  unless pool_path == goad_storage_path
+    abort "#{goad_storage_pool} storage pool must target #{goad_storage_path}. Create or correct the pool first."
   end
 end
 
@@ -109,8 +116,8 @@ boxes.append(
             :type => 'qcow2', :size => '1G', :bus => 'virtio',
             :device => 'vdb'
         end
-        libvirt.storage_pool_name = 'GOAD'
-        libvirt.snapshot_pool_name = 'GOAD'
+        libvirt.storage_pool_name = goad_storage_pool
+        libvirt.snapshot_pool_name = goad_storage_pool
         libvirt.default_prefix = lab_prefix
         unless is_linux
           # libvirt requires this timer whenever the Hyper-V stimer feature is enabled.
@@ -161,7 +168,7 @@ boxes.append(
           target.vm.provision :shell,
             :path => "../../../vagrant/Configure-VirtIOPrivateNetwork.ps1",
             :args => [box[:ip], "24", "{{ip_range}}.1",
-                      (box.has_key?(:soc_ip) ? "" : soc_network_prefix),
+                      (box.has_key?(:soc_ip) ? "none" : soc_network_prefix),
                       (box.has_key?(:soc_mac) ? box[:soc_mac] : "")],
             privileged: false,
             run: "always"
@@ -177,6 +184,11 @@ boxes.append(
             privileged: false,
             run: "always"
         end
+        target.vm.provision :shell,
+          :path => "../../../vagrant/Configure-NatDns.ps1",
+          :args => ["1.1.1.1"],
+          privileged: false,
+          run: "always"
         target.vm.provision :shell,
           :path => "../../../vagrant/Configure-TimeZone.ps1",
           privileged: false,

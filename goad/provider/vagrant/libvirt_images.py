@@ -147,6 +147,19 @@ class BaseImages:
             verified = self.xml(*args)
             if verified.findall("./devices/disk[@device='disk']/backingStore/source"):
                 raise InspectionError('Guest still has a backing chain after blockpull')
+        # Online block jobs update the disk and domain XML, but libvirt's
+        # storage-pool metadata can retain the old backingStore until the pool
+        # is refreshed. Refresh each affected pool before using volume XML as
+        # the final, independent-disk check.
+        pools = set()
+        for disk in root.findall("./devices/disk[@device='disk']"):
+            source = disk.find('source')
+            pool = self.output('vol-pool', self.path(source.get('file'))).strip()
+            if not pool or '\n' in pool:
+                raise InspectionError('Cannot identify disk storage pool after blockpull')
+            pools.add(pool)
+        for pool in sorted(pools):
+            self.output('pool-refresh', pool)
         for disk in root.findall("./devices/disk[@device='disk']"):
             source = disk.find('source')
             volume = self.xml('vol-dumpxml', self.path(source.get('file')))

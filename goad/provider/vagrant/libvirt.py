@@ -22,6 +22,7 @@ from rich.progress import (
 
 from goad.log import Log
 from goad.provider.vagrant.vagrant import VagrantProvider
+from goad.provider.vagrant.storage import storage_pool_for_lab
 from goad.provider.vagrant.libvirt_images import BaseImages, InspectionError
 from goad.utils import (
     LIBVIRT,
@@ -59,6 +60,13 @@ class LibvirtProvider(VagrantProvider):
     GUEST_PRIVATE_NETWORK_MARKER = (
         r"C:\ProgramData\GOAD\virtio-private-network-ready"
     )
+
+    def __init__(self, lab_name):
+        super().__init__(lab_name)
+        pool_name, pool_path = storage_pool_for_lab(lab_name)
+        self.STORAGE_POOL_PATH = pool_path
+        self.command.libvirt_pool_name = pool_name
+        self.command.libvirt_pool_path = pool_path
 
     def check(self):
         checks = [
@@ -285,6 +293,8 @@ class LibvirtProvider(VagrantProvider):
         """Start at most two guests concurrently to limit host I/O pressure."""
         for offset in range(0, len(machine_names), self.START_BATCH_SIZE):
             batch = machine_names[offset:offset + self.START_BATCH_SIZE]
+            if not all(self.tune_storage(name) for name in batch):
+                return False
             if not self.command.run_vagrant(
                 ["up"] + batch + ["--provider=libvirt"], self.path
             ):
@@ -407,6 +417,79 @@ class LibvirtProvider(VagrantProvider):
             if temp_path:
                 Path(temp_path).unlink(missing_ok=True)
 
+    @staticmethod
+    def _configure_disk_iothread(root, disk):
+        """Give VirtIO storage its own event loop; preserve custom mappings."""
+        driver = disk.find("driver")
+        if driver is None:
+            driver = ET.Element("driver", name="qemu")
+            disk.insert(0, driver)
+        if driver.find("iothreads") is not None or driver.get("iothread"):
+            return
+        threads = root.find("iothreads")
+        if threads is None:
+            threads = ET.Element("iothreads")
+            threads.text = "1"
+            root.insert(0, threads)
+        ids = root.findall("./iothreadids/iothread")
+        thread_id = ids[0].get("id") if ids else "1"
+        if int(threads.text or "0") < 1:
+            threads.text = "1"
+        driver.set("iothread", thread_id)
+        driver.set("queues", str(min(2, max(1, int(root.findtext("vcpu", "1"))))))
+        driver.set("cache", "none")
+        driver.set("io", "native")
+        driver.set("discard", "unmap")
+        driver.set("detect_zeroes", "unmap")
+
+    def tune_storage(self, vm_name):
+        """Tune an existing, stopped guest without booting or changing its disk."""
+        id_file = Path(self.path) / ".vagrant/machines" / vm_name / "libvirt/id"
+        if not id_file.is_file():
+            return True  # A fresh box must first complete the VirtIO transition.
+        domain = self._domain_uuid(vm_name)
+        state = self._virsh(["domstate", domain]) if domain else None
+        if state is None or state.returncode != 0:
+            Log.error(f"Cannot check storage tuning state for {vm_name}")
+            return False
+        if state.stdout.strip() != "shut off":
+            return True  # Never stop/reconfigure a live or saved guest here.
+        saved = self._virsh(["dominfo", domain])
+        if saved is None or saved.returncode != 0:
+            return False
+        if any(line.strip().startswith("Managed save:") and
+               line.split(":", 1)[1].strip() == "yes"
+               for line in saved.stdout.splitlines()):
+            return True
+        xml_text = self._dump_domain_xml(vm_name)
+        try:
+            tree = ET.fromstring(xml_text)
+            disk = self._primary_disk(tree)
+            target = None if disk is None else disk.find("target")
+            if target is None or target.get("bus") != "virtio":
+                return True  # Keep Windows bootstrap disks on IDE.
+            before = ET.tostring(tree, encoding="unicode")
+            self._configure_disk_iothread(tree, disk)
+            after = ET.tostring(tree, encoding="unicode")
+            if after == before:
+                return True
+            backup = self._state_dir(vm_name) / "pre-iothread-domain.xml"
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            if not backup.exists():
+                backup.write_text(xml_text)
+                backup.chmod(0o600)
+        except (TypeError, ValueError, ET.ParseError, OSError) as error:
+            Log.error(f"Cannot prepare storage tuning for {vm_name}: {error}")
+            return False
+        # Recheck immediately before defining the persistent configuration.
+        state = self._virsh(["domstate", domain])
+        if state is None or state.returncode != 0 or state.stdout.strip() != "shut off":
+            return False
+        if not self._define_domain_xml(vm_name, after):
+            return False
+        Log.info(f"Storage IOThread configured for {vm_name}")
+        return True
+
     def _prepare_storage_transition(self, vm_name):
         xml_text = self._dump_domain_xml(vm_name)
         if xml_text is None:
@@ -446,6 +529,7 @@ class LibvirtProvider(VagrantProvider):
         driver.set("io", "native")
         driver.set("discard", "unmap")
         driver.set("detect_zeroes", "unmap")
+        self._configure_disk_iothread(root, primary_disk)
 
         devices = root.find("devices")
         temporary_volume = None
@@ -746,6 +830,8 @@ class LibvirtProvider(VagrantProvider):
 
     def start_vm(self, vm_name):
         if not self.command.refresh_libvirt_pool():
+            return False
+        if not self.tune_storage(vm_name):
             return False
         return self.command.run_vagrant(
             ["up", vm_name, "--provider=libvirt"], self.path

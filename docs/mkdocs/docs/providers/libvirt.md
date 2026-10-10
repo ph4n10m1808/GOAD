@@ -31,6 +31,16 @@ guest disks that cannot be inspected, or inaccessible pools can prevent cleanup.
 Vagrant's box directory remain available for future VM creation. The original
 base paths are saved in the workspace for subsequent cleanup during `destroy`.
 
+## IOThread cho đĩa NVMe — 09/10/2026
+
+Source cấu hình nằm trong `goad/provider/vagrant/libvirt.py`: provider thêm một IOThread cho đĩa boot VirtIO, với số hàng đợi bằng `min(2, vCPU)`; giữ `cache=none`, `io=native`, `discard=unmap` và `detect_zeroes=unmap`. Đây là cấu hình để thử giảm tranh chấp event loop QEMU, chưa phải số liệu chứng minh tăng tốc. `vagrant-libvirt 0.12.2` bỏ qua `iothread`/`queues` trong `disk_driver`, nên không đặt các key không hỗ trợ vào Vagrantfile.
+
+GOAD `start`/`start_vm` kiểm tra và áp dụng cho VM hiện hữu đang tắt trước khi gọi Vagrant. VM đang chạy, managed-save và đĩa IDE bootstrap được giữ nguyên; mapping IOThread tùy chỉnh cũng được giữ. Windows mới nhận cấu hình khi chuyển boot disk sang VirtIO sau kiểm tra driver; Linux mới nhận khi start lại sau lần tạo đầu. Gọi Vagrant trực tiếp không chạy bước bổ sung này; dùng lifecycle GOAD.
+
+Đã áp dụng offline cho 5 VM GOAD và 3 VM GOAD-Light ở hai workspace hiện hữu, mỗi VM một IOThread và hai queue. XML schema/UUID/đường dẫn disk đã kiểm tra; 53 test libvirt/storage đạt, gồm idempotence, bảo toàn identity, bỏ qua running/managed-save/IDE và chặn start khi tuning thất bại. Chưa boot Windows, kiểm tra AD/DNS/WinRM hoặc benchmark trước/sau; thay đổi có hiệu lực vào lần boot tiếp theo. Không đổi pool, disk image, network, tài nguyên CPU/RAM hay VM SOC.
+
+XML trước thay đổi nằm tại `workspace/<instance>/provider/.goad/virtio/<machine>/pre-iothread-domain.xml` (0600, giữ bản đầu). Để hoàn tác, dừng VM qua GOAD, phục hồi XML đó bằng cơ chế `_define_domain_xml` của provider rồi bỏ hoặc điều chỉnh bước `tune_storage` trong source trước lần start tiếp theo; nếu giữ source hiện tại, GOAD sẽ tự áp lại cấu hình. Không restore XML cũ nếu disk/network đã được thay đổi sau thời điểm backup mà chưa đối chiếu.
+
 ## Cleanup on destroy
 
 `destroy`, `destroy_vm`, and `delete` attempt to remove unused base images
@@ -86,11 +96,30 @@ export GOAD_VAGRANT_HOME=/mnt/SSD_DATA/.vagrant.d
 export VAGRANT_HOME="$GOAD_VAGRANT_HOME"
 ```
 
-VM images are stored in `/mnt/SSD_DATA/Virtualization/KVM/GOAD`. The required pool is `GOAD`; the Vagrant box cache stays in `/mnt/SSD_DATA/.vagrant.d`.
+The selected lab fixes the VM and snapshot storage pool:
+
+| Lab | Pool | VM image directory |
+| --- | --- | --- |
+| GOAD-Light | `GOAD-Light` | `/mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light` |
+| Other labs | `GOAD` | `/mnt/SSD_DATA/Virtualization/KVM/GOAD` |
+
+The shared Vagrant box cache stays in `/mnt/SSD_DATA/.vagrant.d` and the VirtIO
+ISO stays on the first SSD. GOAD-Light extensions and a provisioning VM inherit
+the GOAD-Light pool. No environment override can fall back to the former pool.
+The second SSD must be mounted before preparing boxes, creating, reloading or
+resuming GOAD-Light guests; an unavailable mount or incorrect pool target stops
+the operation.
 
 Create the pool once if it does not exist, then start it and enable autostart:
 
 ```bash
+# GOAD-Light
+sudo mkdir -p /mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light
+virsh -c qemu:///system pool-define-as GOAD-Light dir --target /mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light
+virsh -c qemu:///system pool-start GOAD-Light
+virsh -c qemu:///system pool-autostart GOAD-Light
+
+# Other labs, when needed
 sudo mkdir -p /mnt/SSD_DATA/Virtualization/KVM/GOAD
 virsh -c qemu:///system pool-define-as GOAD dir --target /mnt/SSD_DATA/Virtualization/KVM/GOAD
 virsh -c qemu:///system pool-start GOAD
@@ -99,13 +128,36 @@ virsh -c qemu:///system pool-autostart GOAD
 
 The pool target is validated before starting Vagrant; an incorrect target stops the operation. GOAD_LIBVIRT_STORAGE_POOL no longer overrides this fixed location. Existing VM disks are not automatically migrated.
 
-GOAD refreshes the GOAD pool before starting Vagrant. This removes stale libvirt metadata left behind when a failed upload deletes a volume file.
+GOAD refreshes the selected lab pool before starting Vagrant. This removes stale libvirt metadata left behind when a failed upload deletes a volume file.
 
 The `libvirt-qemu` user also needs traverse permission on every parent directory of the pool. If the mount point is private (`0700`), grant only the required traverse permission instead of opening the whole disk:
 
 ```bash
 sudo setfacl -m u:libvirt-qemu:--x /mnt/SSD_DATA
+sudo setfacl -m u:libvirt-qemu:--x /mnt/SSD_DATA_1
 ```
+
+## Relocate an existing GOAD-Light workspace
+
+The offline helper only supports independent single-disk QCOW2 guests without
+snapshots, managed save or UEFI NVRAM. Shut off the lab through GOAD first and
+avoid concurrent VM/disk changes. Run from the GOAD checkout:
+
+```bash
+python3 scripts/migrate_goad_light_storage.py workspace/<id>-goad-light-libvirt
+python3 scripts/migrate_goad_light_storage.py workspace/<id>-goad-light-libvirt --apply
+```
+
+The first command previews the exact domains and required space. Apply downloads
+sparse image contents through libvirt, checks QCOW2 integrity and full-file SHA256,
+then changes only persistent disk paths while keeping VM UUIDs and settings.
+It updates the existing workspace Vagrantfile without regenerating its settings.
+Old images are removed only after verifying definitions and checking libvirt
+references; guests remain shut off. Definition backups and aggregate evidence
+are stored in a private `.migration-<workspace>` directory beside the new images.
+After an interruption, inspect this journal and the actual domain paths before
+manual recovery; the helper deliberately refuses to overwrite existing targets.
+Source volumes remain available until the final cleanup phase.
 
 ## Prepare provider-specific boxes
 

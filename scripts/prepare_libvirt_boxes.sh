@@ -57,13 +57,22 @@ if ! vagrant plugin list | grep -q '^vagrant-libvirt '; then
 fi
 
 pool_name="GOAD"
+expected_pool_path="/mnt/SSD_DATA/Virtualization/KVM/GOAD"
+if [[ "$lab" == "GOAD-Light" ]]; then
+  if ! mountpoint --quiet /mnt/SSD_DATA_1; then
+    echo "GOAD-Light requires /mnt/SSD_DATA_1 to be mounted" >&2
+    exit 1
+  fi
+  pool_name="GOAD-Light"
+  expected_pool_path="/mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light"
+fi
 if ! virsh -c qemu:///system pool-info "$pool_name" >/dev/null; then
   echo "Cannot access libvirt storage pool: $pool_name" >&2
   exit 1
 fi
 pool_path="$(virsh -c qemu:///system pool-dumpxml "$pool_name" | python3 -c 'import sys, xml.etree.ElementTree as ET; print(ET.parse(sys.stdin).findtext("target/path"))')" || exit 1
-if [[ "$pool_path" != "/mnt/SSD_DATA/Virtualization/KVM/GOAD" ]]; then
-  echo "GOAD storage pool must target /mnt/SSD_DATA/Virtualization/KVM/GOAD; found: $pool_path" >&2
+if [[ "$pool_path" != "$expected_pool_path" ]]; then
+  echo "$pool_name storage pool must target $expected_pool_path; found: $pool_path" >&2
   exit 1
 fi
 if ! virsh -c qemu:///system pool-refresh "$pool_name" >/dev/null; then
@@ -194,5 +203,5 @@ if [[ "$dry_run" == true ]]; then
 else
   echo "Libvirt boxes for $lab are ready in $VAGRANT_HOME"
   echo "Use: export VAGRANT_HOME='$VAGRANT_HOME'"
-  echo "VM storage: /mnt/SSD_DATA/Virtualization/KVM/GOAD (pool GOAD)"
+  echo "VM storage: $expected_pool_path (pool $pool_name)"
 fi

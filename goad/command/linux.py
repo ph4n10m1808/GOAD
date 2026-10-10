@@ -1,6 +1,7 @@
 import sys
 import os
 from goad.command.cmd import Command
+from goad.provider.vagrant.storage import storage_pool_for_lab
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -15,6 +16,7 @@ class LinuxCommand(Command):
         super().__init__()
         self.vagrant_bin = 'vagrant'
         self.terraform_bin = 'terraform'
+        self.libvirt_pool_name, self.libvirt_pool_path = storage_pool_for_lab('GOAD')
 
     # CHECK
     def check_gem(self, gem_name):
@@ -73,7 +75,7 @@ class LinuxCommand(Command):
         if not self._validate_libvirt_pool_path():
             return False
 
-        pool_name = 'GOAD'
+        pool_name = self.libvirt_pool_name
         result = subprocess.run(
             ['virsh', '-c', 'qemu:///system', 'pool-info', '--bytes', pool_name],
             stdout=subprocess.PIPE,
@@ -122,24 +124,27 @@ class LinuxCommand(Command):
         return True
 
     def _validate_libvirt_pool_path(self):
-        expected = '/mnt/SSD_DATA/Virtualization/KVM/GOAD'
+        if self.libvirt_pool_name == 'GOAD-Light' and not os.path.ismount('/mnt/SSD_DATA_1'):
+            Log.error('GOAD-Light requires /mnt/SSD_DATA_1 to be mounted')
+            return False
+        expected = str(self.libvirt_pool_path)
         try:
             result = subprocess.run(
-                ['virsh', '-c', 'qemu:///system', 'pool-dumpxml', 'GOAD'],
+                ['virsh', '-c', 'qemu:///system', 'pool-dumpxml', self.libvirt_pool_name],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
         except OSError as error:
-            Log.error(f'Cannot inspect GOAD storage pool: {error}')
+            Log.error(f'Cannot inspect {self.libvirt_pool_name} storage pool: {error}')
             return False
         if result.returncode != 0:
-            Log.error(f'Cannot inspect GOAD storage pool: {result.stderr.strip()}')
+            Log.error(f'Cannot inspect {self.libvirt_pool_name} storage pool: {result.stderr.strip()}')
             return False
         try:
             actual = ET.fromstring(result.stdout).findtext('target/path')
         except ET.ParseError:
             actual = None
         if actual != expected:
-            Log.error(f'GOAD storage pool must target {expected}; found {actual!r}. '
+            Log.error(f'{self.libvirt_pool_name} storage pool must target {expected}; found {actual!r}. '
                       'Create or correct the pool before starting VMs.')
             return False
         return True
@@ -147,7 +152,7 @@ class LinuxCommand(Command):
     def refresh_libvirt_pool(self):
         if not self._validate_libvirt_pool_path():
             return False
-        pool_name = 'GOAD'
+        pool_name = self.libvirt_pool_name
         result = subprocess.run(
             ['virsh', '-c', 'qemu:///system', 'pool-refresh', pool_name],
             stdout=subprocess.PIPE,

@@ -21,6 +21,7 @@ class BaseImagesTest(unittest.TestCase):
             ('pool-list', '--name'): 'GOAD\n',
             ('pool-dumpxml', 'GOAD'): '<pool type="dir"/>',
             ('pool-refresh', 'GOAD'): '',
+            ('vol-pool', '/pool/guest.img'): 'GOAD\n',
             ('vol-list', 'GOAD'): ' Name  Path\n---------------\n base  ' + BASE + '\n',
             ('vol-dumpxml', 'base', '--pool', 'GOAD'): '<volume><target><path>' + BASE + '</path></target></volume>',
             ('vol-delete', BASE): '',
@@ -114,6 +115,24 @@ class BaseImagesTest(unittest.TestCase):
         self.images.virsh = virsh
         self.assertEqual(self.images.flatten('guest'), {BASE})
         self.assertIn(('blockpull', 'guest', 'vda', '--wait', '--verbose'), self.calls)
+
+    def test_flatten_refreshes_stale_volume_metadata_after_blockpull(self):
+        xml = '<domain><devices><disk device="disk"><driver type="qcow2"/><source file="/pool/guest.img"/><target dev="vda"/></disk></devices></domain>'
+        self.responses[('snapshot-list', 'guest', '--name')] = ''
+        self.responses[('dumpxml', 'guest')] = xml
+        self.responses[('dumpxml', 'guest', '--inactive')] = xml
+        self.responses[('vol-dumpxml', '/pool/guest.img')] = '<volume><backingStore><path>' + BASE + '</path></backingStore></volume>'
+        self.responses[('blockpull', 'guest', 'vda', '--wait', '--verbose')] = ''
+        def virsh(args):
+            if args == ['pool-refresh', 'GOAD']:
+                self.responses[('vol-dumpxml', '/pool/guest.img')] = '<volume/>'
+            return self.virsh(args)
+        self.images.virsh = virsh
+        self.assertEqual(self.images.flatten('guest'), {BASE})
+        final_volume_check = max(
+            i for i, call in enumerate(self.calls)
+            if call == ('vol-dumpxml', '/pool/guest.img'))
+        self.assertLess(self.calls.index(('pool-refresh', 'GOAD')), final_volume_check)
 
     def test_flatten_rejects_backing_left_in_volume_after_successful_command(self):
         xml = '<domain><devices><disk device="disk"><driver type="qcow2"/><source file="/pool/guest.img"/><target dev="vda"/></disk></devices></domain>'
