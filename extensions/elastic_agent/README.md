@@ -1,4 +1,4 @@
-# Elastic Agent 8.19.16
+# Elastic Agent 8.19.22
 
 Extension cài Elastic Agent trên các máy Windows thuộc nhóm inventory `domain`,
 đăng ký vào Fleet Server đang có. Không tạo thêm VM hay Fleet Server.
@@ -12,17 +12,17 @@ install_extension elastic_agent
 ```
 
 Console hỏi IP/hostname Fleet Server, enrollment token (ẩn khi nhập), phiên bản
-(mặc định `8.19.16`) và đường dẫn CA `.crt` trên máy đang chạy GOAD.
+(mặc định `8.19.22`) và đường dẫn CA `.crt` trên máy đang chạy GOAD.
 Hoặc truyền trực tiếp các tùy chọn:
 
 ```text
-install_extension elastic_agent --ip 192.168.50.10 --token YOUR_ENROLLMENT_TOKEN --crt "/path/to/elk/certs/ca/ca.crt" --version 8.19.16
+install_extension elastic_agent --ip 192.168.50.10 --token YOUR_ENROLLMENT_TOKEN --crt "/path/to/elk/certs/ca/ca.crt" --version 8.19.22
 ```
 
 Có thể bỏ `--token` để nhập token ẩn, tránh lưu token vào lịch sử lệnh:
 
 ```text
-install_extension elastic_agent --ip 192.168.50.10 --crt "/path/to/elk/certs/ca/ca.crt" --version 8.19.16
+install_extension elastic_agent --ip 192.168.50.10 --crt "/path/to/elk/certs/ca/ca.crt" --version 8.19.22
 ```
 
 IP đơn được chuyển thành `https://IP:8220`; có thể nhập

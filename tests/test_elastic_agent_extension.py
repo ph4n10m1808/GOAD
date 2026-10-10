@@ -46,7 +46,7 @@ class ElasticAgentConfigurationTest(unittest.TestCase):
                 fleet_url(supplied)
 
     def test_command_accepts_quoted_crt_path(self):
-        options = parse_options('elastic_agent --ip 192.168.50.10 --token TEST== --crt "/tmp/my CA.crt" --version 8.19.16')
+        options = parse_options('elastic_agent --ip 192.168.50.10 --token TEST== --crt "/tmp/my CA.crt" --version 8.19.22')
         self.assertEqual(options['crt'], '/tmp/my CA.crt')
         self.assertEqual(options['token'], 'TEST==')
         for command in ('elastic_agent --unknown SECRET', 'elastic_agent --crt "SECRET', 'elastic_agent --token'):
@@ -63,7 +63,7 @@ class ElasticAgentConfigurationTest(unittest.TestCase):
 
     def test_config_roundtrip_permissions_and_no_prompts_when_saved(self):
         with tempfile.TemporaryDirectory() as directory:
-            options = dict(ip='192.168.50.10', token='TEST==', crt=str(self.crt), version='8.19.16')
+            options = dict(ip='192.168.50.10', token='TEST==', crt=str(self.crt), version='8.19.22')
             with patch('builtins.input', side_effect=AssertionError('unexpected prompt')):
                 configure(directory, options=options)
                 configure(directory)
@@ -84,7 +84,7 @@ class ElasticAgentConfigurationTest(unittest.TestCase):
             with patch('builtins.input', side_effect=['', '', '']), patch('getpass.getpass', return_value=''):
                 configure(directory, force=True)
             values = json.loads((Path(directory) / 'elastic_agent_options.yml').read_text())['all']['children']['elastic_agent_targets']['vars']
-            self.assertEqual(values['elastic_agent_version'], '8.19.16')
+            self.assertEqual(values['elastic_agent_version'], '8.19.22')
             self.assertEqual(values['elastic_agent_enrollment_token'], 'TEST==')
             self.assertEqual(values['elastic_agent_ca_pem'], self.crt.read_text())
 
@@ -93,7 +93,7 @@ class ElasticAgentConfigurationTest(unittest.TestCase):
         if not executable.exists():
             self.skipTest('ansible-inventory is not installed next to Python')
         with tempfile.TemporaryDirectory() as directory:
-            configure(directory, options=dict(ip='192.168.50.10', token='TEST==', crt=str(self.crt), version='8.19.16'))
+            configure(directory, options=dict(ip='192.168.50.10', token='TEST==', crt=str(self.crt), version='8.19.22'))
             result = subprocess.run([
                 str(executable), '-i', str(ROOT / 'ad/GOAD/data/inventory'),
                 '-i', str(ROOT / 'extensions/elastic_agent/inventory'),

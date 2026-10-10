@@ -1,6 +1,6 @@
 elastic_agent_fleet_url: ''
 elastic_agent_enrollment_token: ''
-elastic_agent_version: '8.19.16'
+elastic_agent_version: '8.19.22'
 elastic_agent_insecure: false
 elastic_agent_reenroll: false
 elastic_agent_ca_pem: ''

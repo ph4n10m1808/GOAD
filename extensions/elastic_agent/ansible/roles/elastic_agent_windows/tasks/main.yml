@@ -132,7 +132,7 @@
   delay: 10
   until:
     - elastic_agent_health.rc == 0
-    # Elastic Agent 8.19.16 uses lowercase state but untagged FleetState in JSON.
+    # Elastic Agent 8.19 uses lowercase state but untagged FleetState in JSON.
     - (elastic_agent_health.stdout | from_json).state | default(-1) == 2
     - (elastic_agent_health.stdout | from_json).FleetState | default(-1) == 2
 

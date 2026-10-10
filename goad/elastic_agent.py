@@ -103,7 +103,7 @@ def configure(instance_path, force=False, options=None):
         'elastic_agent_enrollment_token': options.get('token') if options.get('token') is not None else getpass.getpass(
             'Fleet enrollment token (hidden; blank keeps saved token): '
         ).strip() or previous.get('elastic_agent_enrollment_token', ''),
-        'elastic_agent_version': ask('Elastic Agent version', 'elastic_agent_version', 'version', '8.19.16'),
+        'elastic_agent_version': ask('Elastic Agent version', 'elastic_agent_version', 'version', '8.19.22'),
     }
     crt = options.get('crt')
     if crt is None:
