@@ -67,9 +67,12 @@ if id -nG | tr ' ' '\n' | grep -Fxq docker; then
   echo "[+] current user is in the docker group"
   docker_command=(docker)
 else
-  echo "[*] current user is not in the docker group; using sudo"
-  docker_command=(sudo docker)
+  echo "[*] current user is not in the docker group; using pkexec"
+  docker_command=(pkexec docker)
 fi
+
+# Keep the same launcher for the Python provisioner's inspect and run calls.
+export GOAD_DOCKER_LAUNCHER="${docker_command[*]}"
 
 if ! "${docker_command[@]}" image inspect "$docker_image" >/dev/null 2>&1; then
   echo "[+] building Docker image '$docker_image'"

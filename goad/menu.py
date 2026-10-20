@@ -51,6 +51,7 @@ def print_menu(lab_manager, advanced=True, debug=False):
         print_menu_title('Extensions')
         print_menu_entry('list_extensions', 'list extensions')
         print_menu_entry('install_extension <extension>', 'install extension (providing + provisioning)')
+        print_menu_entry('uninstall_extension <extension>', 'uninstall provisioning-only extension locally; disable after success')
 
         if advanced:
             print_menu_entry('provision_extension <extension>', 'provision extension (provisioning only)')

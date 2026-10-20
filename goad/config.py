@@ -116,7 +116,7 @@ class Config:
                     elif disable_dependence == 'ludus':
                         Dependencies.ludus_enabled = False
                     elif disable_dependence == 'proxmox':
-                        Dependencies.proxmox_enabled_enabled = False
+                        Dependencies.proxmox_enabled = False
                     elif disable_dependence == 'local':
                         Dependencies.provisioner_local_enabled = False
                     elif disable_dependence == 'runner':
