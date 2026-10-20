@@ -79,6 +79,32 @@
   when: splunk_indexer_receiver_query.status == 404
   no_log: true
 
+- name: Verify the managed cooked TCP receiver
+  ansible.builtin.uri:
+    url: >-
+      {{ splunk_indexer_api_base }}/data/inputs/tcp/cooked/
+      {{- splunk_indexer_receiver_port }}?output_mode=json
+    method: GET
+    user: "{{ splunk_indexer_admin_user }}"
+    password: "{{ splunk_indexer_admin_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ splunk_indexer_verify_tls | bool }}"
+    return_content: true
+    status_code: 200
+  register: splunk_indexer_receiver_verified
+  no_log: true
+
+- name: Require an enabled cooked TCP receiver
+  ansible.builtin.assert:
+    that:
+      - splunk_indexer_receiver_verified.json.entry | default([]) | length > 0
+      - splunk_indexer_receiver_verified.json.entry[0].content.disabled is defined
+      - (splunk_indexer_receiver_verified.json.entry[0].content.disabled | string | lower) in ['false', '0']
+    fail_msg: >-
+      The managed Splunk receiver is disabled or its state is unavailable.
+      Enable the receiver on the indexer before requiring bootstrap success.
+  no_log: true
+
 - name: Show synchronized Splunk destination
   ansible.builtin.debug:
     msg:

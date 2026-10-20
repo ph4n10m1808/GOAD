@@ -120,6 +120,60 @@ class SplunkUniversalForwarderExtensionTest(unittest.TestCase):
             self.assertIn(variable, indexer_defaults)
             self.assertIn(variable, forwarder_defaults)
 
+    def test_receiver_success_requires_an_explicit_enabled_state(self):
+        try:
+            import yaml
+            from ansible.parsing.dataloader import DataLoader
+            from ansible.playbook.conditional import Conditional
+            from ansible.template import Templar
+        except ImportError:
+            self.skipTest('Ansible is required to evaluate receiver assertions')
+        tasks = yaml.safe_load((EXTENSION / 'ansible/roles/splunk_indexer_bootstrap/tasks/configure.yml').read_text())
+        guard = next(task for task in tasks if task['name'] == 'Require an enabled cooked TCP receiver')
+        verify = next(task for task in tasks if task['name'] == 'Verify the managed cooked TCP receiver')
+        synchronized = next(task for task in tasks if task['name'] == 'Show synchronized Splunk destination')
+        self.assertLess(tasks.index(verify), tasks.index(guard))
+        self.assertLess(tasks.index(guard), tasks.index(synchronized))
+        self.assertEqual(verify['ansible.builtin.uri']['status_code'], 200)
+        self.assertNotIn('when', guard)
+        loader = DataLoader()
+        for entries, expected in (
+            ([{'content': {'disabled': False}}], True),
+            ([{'content': {'disabled': 0}}], True),
+            ([{'content': {'disabled': '0'}}], True),
+            ([{'content': {'disabled': True}}], False),
+            ([{'content': {'disabled': '1'}}], False),
+            ([{'content': {'disabled': 'unknown'}}], False),
+            ([{'content': {}}], False),
+            ([], False),
+        ):
+            variables = {'splunk_indexer_receiver_verified': {'json': {'entry': entries}}}
+            conditional = Conditional(loader=loader)
+            conditional.when = guard['ansible.builtin.assert']['that']
+            with self.subTest(entries=entries):
+                self.assertEqual(conditional.evaluate_conditional(Templar(loader=loader, variables=variables), variables), expected)
+
+    def test_failed_receiver_verification_stops_required_bootstrap(self):
+        try:
+            import yaml
+            from ansible.parsing.dataloader import DataLoader
+            from ansible.playbook.conditional import Conditional
+            from ansible.template import Templar
+        except ImportError:
+            self.skipTest('Ansible is required to evaluate bootstrap failure policy')
+        tasks = yaml.safe_load((EXTENSION / 'ansible/roles/splunk_indexer_bootstrap/tasks/main.yml').read_text())
+        block = next(task for task in tasks if 'rescue' in task)
+        mandatory = next(task for task in block['rescue'] if 'ansible.builtin.fail' in task)
+        optional = next(task for task in block['rescue'] if 'ansible.builtin.debug' in task)
+        loader = DataLoader()
+        for required in (True, False):
+            variables = {'splunk_indexer_config_required': required}
+            for task, expected in ((mandatory, required), (optional, not required)):
+                conditional = Conditional(loader=loader)
+                conditional.when = task['when']
+                with self.subTest(required=required, task=task['name']):
+                    self.assertEqual(conditional.evaluate_conditional(Templar(loader=loader, variables=variables), variables), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

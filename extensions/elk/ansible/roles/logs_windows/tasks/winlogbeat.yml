@@ -63,5 +63,5 @@
 - name: Remove other winlogbeat installations
   win_shell: |
     $version="{{ winlogbeat_service.version }}"
-    Get-ChildItem -Path "{{ winlogbeat_service.install_path_64 }}" | Where-Object {$_.Name -CNotMatch $version} | Remove-Item -Recurse
+    Get-ChildItem -Directory -Path "{{ winlogbeat_service.install_path_64 }}" -Filter "winlogbeat-*-windows-x86_64" | Where-Object {$_.Name -ne "winlogbeat-$version-windows-x86_64"} | Remove-Item -Recurse
   when: not winlogbeat_folder.stat.exists
