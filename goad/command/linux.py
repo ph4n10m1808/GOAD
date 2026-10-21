@@ -1,3 +1,4 @@
+import shlex
 import sys
 import os
 from goad.command.cmd import Command
@@ -220,14 +221,14 @@ class LinuxCommand(Command):
             Log.error(f"An error occurred while running the command: {e}")
         return None
 
-    def run_docker_ansible(self, args, path, ansible_path, sudo):
+    def run_docker_ansible(self, args, path, ansible_path, docker_command):
         result = None
         try:
-            ansible_command = 'ansible-playbook '
-            ansible_command += args
-            command = f"{sudo} docker run -ti --rm --network host -h goadansible -v {GoadPath.get_project_path()}:/goad -w {ansible_path} goadansible /bin/bash -c '{ansible_command}'"
-            Log.cmd(command)
-            result = subprocess.run(command, cwd=path, stderr=sys.stderr, stdout=sys.stdout, shell=True)
+            command = [*docker_command, 'run', '-ti', '--rm', '--network', 'host',
+                       '-h', 'goadansible', '-v', f'{GoadPath.get_project_path()}:/goad',
+                       '-w', str(ansible_path), 'goadansible', 'ansible-playbook', *shlex.split(args)]
+            Log.cmd(shlex.join(command))
+            result = subprocess.run(command, cwd=path, stderr=sys.stderr, stdout=sys.stdout, check=False)
         except subprocess.CalledProcessError as e:
             Log.error(f"An error occurred while running the command: {e}")
             return False

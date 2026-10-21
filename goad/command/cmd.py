@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import psutil
 import sys
@@ -230,24 +231,19 @@ class Command:
         # linux only
         pass
 
-    def run_docker_ansible(self, args, path, ansible_path, sudo):
-        # linux only
-        pass
-
     def run_ansible(self, args, path):
         result = None
         try:
-            command = 'ansible-playbook '
-            command += args
+            command = ['ansible-playbook', *shlex.split(args)]
             Log.info('CWD: ' + Utils.get_relative_path(str(path)))
-            Log.cmd(command)
-            result = subprocess.run(command, cwd=path, stderr=sys.stderr, stdout=sys.stdout, shell=True)
+            Log.cmd(shlex.join(command))
+            result = subprocess.run(command, cwd=path, stderr=sys.stderr, stdout=sys.stdout, check=False)
         except subprocess.CalledProcessError as e:
             Log.error(f"An error occurred while running the command: {e}")
             return False
         return result.returncode == 0
 
-    def run_docker_ansible(self, args, path, sudo):
+    def run_docker_ansible(self, args, path, ansible_path, docker_command):
         # Linux only
         pass
 

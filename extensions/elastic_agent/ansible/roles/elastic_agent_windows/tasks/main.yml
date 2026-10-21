@@ -117,6 +117,29 @@
     - elastic_agent_reenroll | bool or (elastic_agent_saved_hash.content | default('') | b64decode | trim) != elastic_agent_enrollment_hash
   no_log: true
   register: elastic_agent_enroll
+  failed_when: false
+  changed_when: elastic_agent_enroll.rc == 0
+
+- name: Prepare credential-redacted Elastic Agent re-enroll diagnostics
+  ansible.builtin.set_fact:
+    elastic_agent_enroll_diagnostic: >-
+      {{
+        ((elastic_agent_enroll.stdout | default('')) ~ '\n' ~
+         (elastic_agent_enroll.stderr | default('')))
+        | regex_replace(elastic_agent_enrollment_token | regex_escape, '[REDACTED]')
+        | regex_replace('(?i)(--enrollment-token(?:=|\s+))\S+', '\\1[REDACTED]')
+        | truncate(1200, true, '...')
+      }}
+  when: elastic_agent_enroll.rc | default(0) != 0
+  no_log: true
+
+- name: Report Elastic Agent re-enroll failure without exposing credentials
+  ansible.builtin.fail:
+    msg: >-
+      Elastic Agent re-enroll failed (rc={{ elastic_agent_enroll.rc }}).
+      Credential-redacted command output:
+      {{ elastic_agent_enroll_diagnostic | default('No stdout or stderr was returned.') }}
+  when: elastic_agent_enroll.rc | default(0) != 0
 
 - name: Ensure Elastic Agent service is running
   ansible.windows.win_service:
@@ -125,16 +148,19 @@
     state: "{{ 'restarted' if elastic_agent_enroll is changed else 'started' }}"
 
 - name: Verify local agent health
-  ansible.windows.win_command: '"{{ elastic_agent_install_dir }}\elastic-agent.exe" status --output json'
+  ansible.windows.win_shell: |
+    try {
+      $raw = & "{{ elastic_agent_install_dir }}\elastic-agent.exe" status --output json
+      if ($LASTEXITCODE -ne 0) { exit 1 }
+      $agentStatus = ($raw -join "`n") | ConvertFrom-Json -ErrorAction Stop
+      if ($agentStatus.state -ne 2 -or $agentStatus.FleetState -ne 2) { exit 1 }
+      exit 0
+    } catch { exit 1 }
   register: elastic_agent_health
   changed_when: false
   retries: 12
   delay: 10
-  until:
-    - elastic_agent_health.rc == 0
-    # Elastic Agent 8.19 uses lowercase state but untagged FleetState in JSON.
-    - (elastic_agent_health.stdout | from_json).state | default(-1) == 2
-    - (elastic_agent_health.stdout | from_json).FleetState | default(-1) == 2
+  until: elastic_agent_health.rc == 0
 
 - name: Record successful enrollment without storing the token in the marker
   ansible.windows.win_copy:

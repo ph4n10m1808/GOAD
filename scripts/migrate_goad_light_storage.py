@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 # This helper lives in scripts/ in the project checkout.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from goad.provider.vagrant.storage import storage_pool_for_lab
+from goad.provider.vagrant.libvirt_images import BaseImages
 
 VIRSH = ['virsh', '--quiet', '-c', 'qemu:///system']
 
@@ -29,6 +30,16 @@ def run(args):
 
 def virsh(*args):
     return run(VIRSH + list(args))
+
+
+def dependency_virsh(args):
+    # BaseImages parses the volume-list header; the migration's --quiet
+    # wrapper intentionally omits it and cannot be used for this inspection.
+    return subprocess.run(
+        ['virsh', '-c', 'qemu:///system', *args],
+        capture_output=True, text=True, check=False,
+        env=dict(os.environ, LC_ALL='C'),
+    )
 
 
 def stopped(uuid):
@@ -76,23 +87,23 @@ def volume_names(pool):
 
 
 def cleanup_sources(entries, source_pool, target_pool, journal, evidence):
-    # Before deleting, ensure no domain references the old files, live or persistent.
-    old_paths = {str(e['source']) for e in entries}
-    for uuid in virsh('list','--all','--uuid').split():
-        for extra in ([],['--inactive']):
-            tree = ET.fromstring(virsh('dumpxml',uuid,*extra))
-            if any(node.get('file') in old_paths for node in tree.findall('.//source')):
-                raise RuntimeError('A domain still references an old disk; preserving all sources')
-    for pool in virsh('pool-list','--all','--name').split():
-        if 'running' not in virsh('pool-info',pool):
-            raise RuntimeError('Inactive pool prevents dependency inspection')
-        virsh('pool-refresh',pool)
-        for volume in volume_names(pool):
-            tree = ET.fromstring(virsh('vol-dumpxml',volume,'--pool',pool))
-            if any(node.text in old_paths for node in tree.findall('.//backingStore/path')):
-                raise RuntimeError('A volume still depends on an old disk; preserving sources')
+    # Reuse the destroy guard: canonical paths, saved state/snapshots, all
+    # pools, and backing chains of guest disks outside managed pools.
+    images = BaseImages(dependency_virsh)
+    old_paths = {images.path(str(e['source'])) for e in entries}
+    if images.unused(old_paths, inspect_domains=True) != old_paths:
+        raise RuntimeError('Source disks remain referenced or unregistered; preserving all sources')
     for e in entries:
         stopped(e['uuid'])
+        source = images.path(str(e['source']))
+        volume = ET.fromstring(virsh('vol-dumpxml', e['source'].name, '--pool', source_pool))
+        if images.path(volume.findtext('./target/path')) != source:
+            raise RuntimeError('Source volume identity changed; preserving remaining sources')
+        # Refresh immediately before every deletion, including after another
+        # source has been removed. Inspection failures abort without deleting
+        # this volume or any subsequent source.
+        if images.unused({source}, inspect_domains=True) != {source}:
+            raise RuntimeError('Source disk became referenced; preserving remaining sources')
         virsh('vol-delete',e['source'].name,'--pool',source_pool)
     virsh('pool-refresh',source_pool)
     virsh('pool-refresh',target_pool)

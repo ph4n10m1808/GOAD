@@ -1,6 +1,7 @@
 import ast
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -84,7 +85,7 @@ class ElasticAgentConfigurationTest(unittest.TestCase):
             with patch('builtins.input', side_effect=['', '', '']), patch('getpass.getpass', return_value=''):
                 configure(directory, force=True)
             values = json.loads((Path(directory) / 'elastic_agent_options.yml').read_text())['all']['children']['elastic_agent_targets']['vars']
-            self.assertEqual(values['elastic_agent_version'], '8.19.22')
+            self.assertEqual(values['elastic_agent_version'], '8.19.23')
             self.assertEqual(values['elastic_agent_enrollment_token'], 'TEST==')
             self.assertEqual(values['elastic_agent_ca_pem'], self.crt.read_text())
 
@@ -109,7 +110,7 @@ class ElasticAgentConfigurationTest(unittest.TestCase):
                     self.assertEqual(hostvars['elastic_agent_ca_pem'], self.crt.read_text())
                     self.assertEqual(hostvars['elastic_agent_enrollment_token'], 'TEST==')
 
-    def test_health_check_rejects_unhealthy_agent_and_fleet(self):
+    def test_health_retry_uses_powershell_exit_status(self):
         try:
             import yaml
             from ansible.parsing.dataloader import DataLoader
@@ -120,12 +121,43 @@ class ElasticAgentConfigurationTest(unittest.TestCase):
         tasks = yaml.safe_load((ROOT / 'extensions/elastic_agent/ansible/roles/elastic_agent_windows/tasks/main.yml').read_text())
         health = next(task for task in tasks if task['name'] == 'Verify local agent health')
         loader = DataLoader()
-        for state, fleet_state, rc, expected in ((2, 2, 0, True), (3, 2, 0, False), (2, 0, 0, False), (2, 2, 1, False)):
-            variables = {'elastic_agent_health': {'rc': rc, 'stdout': json.dumps({'state': state, 'FleetState': fleet_state})}}
+        for rc, expected in ((0, True), (1, False)):
+            variables = {'elastic_agent_health': {'rc': rc}}
             conditional = Conditional(loader=loader)
             conditional.when = health['until']
-            with self.subTest(state=state, fleet_state=fleet_state, rc=rc):
+            with self.subTest(rc=rc):
                 self.assertEqual(conditional.evaluate_conditional(Templar(loader=loader, variables=variables), variables), expected)
+
+    def test_powershell_health_guard_rejects_unhealthy_and_malformed_status(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest('PyYAML is required to load the health command')
+        powershell = shutil.which('pwsh') or shutil.which('powershell')
+        if powershell is None:
+            self.skipTest('PowerShell is required to execute the health guard with fixture output')
+        tasks = yaml.safe_load((ROOT / 'extensions/elastic_agent/ansible/roles/elastic_agent_windows/tasks/main.yml').read_text())
+        health = next(task for task in tasks if task['name'] == 'Verify local agent health')
+        script = health['ansible.windows.win_shell']
+        native_call = '$raw = & "{{ elastic_agent_install_dir }}\\elastic-agent.exe" status --output json'
+        self.assertEqual(script.count(native_call), 1)
+        # Replace only the native agent invocation. JSON parsing, state checks,
+        # exceptions and exit codes execute from the actual playbook command.
+        for output, command_rc, expected_rc in (
+            ('{"state":2,"FleetState":2}', 0, 0),
+            ('{"state":3,"FleetState":2}', 0, 1),
+            ('{"state":2,"FleetState":0}', 0, 1),
+            ('{"state":2,"FleetState":2}', 1, 1),
+            ('not JSON', 0, 1),
+            ('{}', 0, 1),
+        ):
+            fixture = "$raw = '" + output.replace("'", "''") + f"'; $global:LASTEXITCODE = {command_rc}"
+            result = subprocess.run(
+                [powershell, '-NoProfile', '-NonInteractive', '-Command', script.replace(native_call, fixture)],
+                capture_output=True, text=True, check=False,
+            )
+            with self.subTest(output=output, command_rc=command_rc):
+                self.assertEqual(result.returncode, expected_rc, result.stderr)
 
 
 class ElasticAgentConsoleTest(unittest.TestCase):
@@ -137,6 +169,7 @@ class ElasticAgentConsoleTest(unittest.TestCase):
         exec(compile(ast.Module(body=[method], type_ignores=[]), '<console test>', 'exec'), namespace)
         console = Mock()
         console._configure_elastic_agent.return_value = True
+        console.lab_manager.get_current_instance_lab().get_extension().list_providers_name.return_value = []
         console.lab_manager.get_current_instance_provider().install.return_value = True
         return namespace['do_install_extension'], console
 
@@ -152,11 +185,21 @@ class ElasticAgentConsoleTest(unittest.TestCase):
         method(console, 'elastic_agent --ip 192.168.50.10 --crt /tmp/ca.crt')
         console.lab_manager.get_current_instance().enable_extension.assert_called_once_with('elastic_agent')
         console.do_provision_extension.assert_called_once_with('elastic_agent')
+        console.lab_manager.get_current_instance_provider().install.assert_not_called()
 
-    def test_other_extensions_keep_existing_flow(self):
+    def test_other_agent_only_extensions_skip_provider_lifecycle(self):
         method, console = self.console()
         method(console, 'sysmon')
         console.lab_manager.get_current_instance().enable_extension.assert_called_once_with('sysmon')
+        console.lab_manager.get_current_instance_provider().install.assert_not_called()
+
+    def test_infrastructure_extensions_still_provide_before_provisioning(self):
+        method, console = self.console()
+        console.lab_manager.get_current_instance_lab().get_extension().list_providers_name.return_value = ['libvirt']
+        console.lab_manager.get_current_instance_provider().install.return_value = False
+        self.assertFalse(method(console, 'elk'))
+        console.lab_manager.get_current_instance_provider().install.assert_called_once_with()
+        console.do_provision_extension.assert_not_called()
 
 
 if __name__ == '__main__':

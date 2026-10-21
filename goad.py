@@ -2,6 +2,7 @@ import cmd
 import argparse
 import sys
 import time
+from pathlib import Path
 from goad.config import Config
 from goad.log import Log
 from goad.exceptions import JumpBoxInitFailed
@@ -327,8 +328,8 @@ class Goad(cmd.Cmd):
                         return False
                     # enable and create files
                     self.lab_manager.get_current_instance().enable_extension(extension_name)
-                    # # start lab with extensions files (vagrant up / terraform plan)
-                    if not self.lab_manager.get_current_instance_provider().install():
+                    # Provisioning-only extensions do not change provider resources.
+                    if extension.list_providers_name() and not self.lab_manager.get_current_instance_provider().install():
                         Log.error(f'Providing extension {extension_name} failed')
                         return False
                     # # provision extension
@@ -339,6 +340,46 @@ class Goad(cmd.Cmd):
             else:
                 Log.error('Install extension can only be run from an instance')
                 return False
+
+    def do_uninstall_extension(self, arg):
+        """Uninstall a provisioning-only extension from the loaded lab instance."""
+        # cmd.Cmd treats a true return value as a request to exit the console.
+        self.uninstall_extension(arg)
+
+    def uninstall_extension(self, arg):
+        extension_name = arg.strip()
+        if not extension_name or len(extension_name.split()) != 1:
+            Log.error('Usage: uninstall_extension <extension>')
+            return False
+        instance = self.lab_manager.get_current_instance()
+        if instance is None:
+            Log.error('Uninstall extension requires a loaded instance')
+            return False
+        extension = self.lab_manager.get_current_instance_lab().get_extension(extension_name)
+        if extension is None or extension_name not in instance.extensions:
+            Log.error('Extension not found or not enabled in the loaded instance')
+            return False
+        # Removing infrastructure extensions needs a provider-specific plan. Do
+        # not rewrite its provider configuration or destroy extension VMs here.
+        if extension.list_providers_name():
+            Log.error('Extensions with provider resources require a separate removal plan')
+            return False
+        playbook = Path(extension.get_ansible_path()) / extension.get_playbook(install=False)
+        if not playbook.is_file():
+            Log.error('Extension has no uninstall playbook; instance unchanged')
+            return False
+        provisioner = self.lab_manager.get_current_instance_provisioner()
+        # Remote sync does not return a success result in this fork. Refuse
+        # rather than run an unverified stale uninstall playbook on a jumpbox.
+        if provisioner.use_jumpbox:
+            Log.error('Uninstall currently requires a local provisioner; instance unchanged')
+            return False
+        if not provisioner.run_extension(extension, list(instance.extensions), install=False):
+            Log.error('Uninstall failed; extension remains enabled for retry')
+            return False
+        instance.disable_extension(extension_name)
+        Log.info(f'Extension {extension_name} uninstalled and disabled')
+        return True
 
     def _configure_elastic_agent(self, extension_name, force=False, options=None):
         if extension_name != 'elastic_agent':
