@@ -50,6 +50,17 @@
       - "{{dns_server}}"
   when: force_dns_server == "yes"
 
+- name: Register only the domain-network adapter in DNS
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-PrivateDnsRegistration.ps1') }}"
+    parameters:
+      PrivateIPAddress: "{{ hostvars[dict_key].ansible_host }}"
+  register: private_dns_registration
+  changed_when: >-
+    (private_dns_registration.output[0] | from_json).changed | length > 0 or
+    (private_dns_registration.output[0] | from_json).removed_host_addresses | length > 0
+  when: two_adapters
+
 - name: Set a proxy for specific protocols
   community.windows.win_http_proxy:
     proxy:

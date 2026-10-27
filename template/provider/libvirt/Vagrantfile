@@ -120,6 +120,8 @@ boxes.append(
         libvirt.snapshot_pool_name = goad_storage_pool
         libvirt.default_prefix = lab_prefix
         unless is_linux
+          # Windows reads its hardware RTC as local time; match the guest UTC+7 timezone.
+          libvirt.clock_offset = 'localtime'
           # libvirt requires this timer whenever the Hyper-V stimer feature is enabled.
           libvirt.clock_timer :name => 'hypervclock', :present => 'yes'
           libvirt.hyperv_feature :name => 'stimer',  :state => 'on'
