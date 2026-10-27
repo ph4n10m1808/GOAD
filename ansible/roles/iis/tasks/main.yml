@@ -58,3 +58,9 @@
   ansible.windows.win_reboot:
   when: win_feature.reboot_required
 
+- name: Preserve HTTP version and supported W3C fields for SOC detection
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-SocIisLogging.ps1') }}"
+  register: soc_iis_logging
+  changed_when: (soc_iis_logging.output | last | from_json).changed | bool
+

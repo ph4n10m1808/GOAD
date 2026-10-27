@@ -171,3 +171,9 @@
   ansible.windows.win_file:
     path: '{{ elastic_agent_staging_dir }}'
     state: absent
+
+- name: Configure SOC Windows audit coverage
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-SocAuditing.ps1') }}"
+  register: elastic_agent_soc_auditing
+  changed_when: (elastic_agent_soc_auditing.output[0] | from_json).changed | length > 0

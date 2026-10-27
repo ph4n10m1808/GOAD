@@ -287,6 +287,9 @@
   vars:
     ansible_become_pass: "{{SQLSVCPASSWORD}}"
 
+- name: Configure SQL Server security audit
+  ansible.builtin.import_tasks: audit.yml
+
 - name: Restart service MSSQL
   win_service:
     name: '{{mssql_service_name}}'
