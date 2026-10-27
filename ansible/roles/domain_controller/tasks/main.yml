@@ -65,7 +65,7 @@
           $Ansible.Changed = $false
       } else {
           $settings.ListeningIPAddress = @($IPAddress)
-          Set-DnsServerSetting -InputObject $settings -Force
+          Set-DnsServerSetting -InputObject $settings
           $Ansible.Changed = $true
       }
     parameters:
@@ -166,3 +166,14 @@
     members:
       - Administrator
     state: present
+
+- name: Keep multihomed DC registration on the private domain network
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', playbook_dir + '/roles/common/files/Configure-PrivateDnsRegistration.ps1') }}"
+    parameters:
+      PrivateIPAddress: "{{ hostvars[dict_key].ansible_host }}"
+  register: dc_private_registration
+  changed_when: >-
+    (dc_private_registration.output[0] | from_json).changed | length > 0 or
+    (dc_private_registration.output[0] | from_json).removed_host_addresses | length > 0
+  when: two_adapters

@@ -1,0 +1,178 @@
+- name: Enable SQL Server security events in the Windows Application log
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $instance = '{{ sql_instance_name }}'
+      $pipe = 'np:\\.\pipe\MSSQL$' + $instance + '\sql\query'
+      $auditSql = @'
+      SET NOCOUNT ON;
+      IF EXISTS (
+        SELECT 1 FROM sys.server_audits
+        WHERE name = N'SOC_SQL_SECURITY_AUDIT'
+          AND type_desc <> N'APPLICATION LOG'
+      )
+      BEGIN
+        ;THROW 51000, 'SOC SQL audit exists with a different target', 1;
+      END;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.server_audits
+        WHERE name = N'SOC_SQL_SECURITY_AUDIT'
+      )
+        CREATE SERVER AUDIT [SOC_SQL_SECURITY_AUDIT]
+        TO APPLICATION_LOG
+        WITH (QUEUE_DELAY = 1000, ON_FAILURE = CONTINUE);
+
+      IF EXISTS (
+        SELECT 1 FROM sys.server_audit_specifications s
+        WHERE s.name = N'SOC_SQL_SECURITY_AUDIT_SPEC'
+          AND s.audit_guid <> (
+            SELECT a.audit_guid FROM sys.server_audits a
+            WHERE a.name = N'SOC_SQL_SECURITY_AUDIT'
+          )
+      )
+      BEGIN
+        ;THROW 51001, 'SOC SQL audit specification points to another audit', 1;
+      END;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.server_audit_specifications
+        WHERE name = N'SOC_SQL_SECURITY_AUDIT_SPEC'
+      )
+      BEGIN
+        CREATE SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC]
+        FOR SERVER AUDIT [SOC_SQL_SECURITY_AUDIT]
+          ADD (FAILED_LOGIN_GROUP),
+          ADD (SUCCESSFUL_LOGIN_GROUP),
+          ADD (SERVER_ROLE_MEMBER_CHANGE_GROUP),
+          ADD (SERVER_PRINCIPAL_CHANGE_GROUP),
+          ADD (DATABASE_PRINCIPAL_CHANGE_GROUP),
+          ADD (DATABASE_ROLE_MEMBER_CHANGE_GROUP),
+          ADD (SERVER_PERMISSION_CHANGE_GROUP),
+          ADD (DATABASE_PERMISSION_CHANGE_GROUP),
+          ADD (AUDIT_CHANGE_GROUP),
+          ADD (BATCH_COMPLETED_GROUP);
+      END;
+
+      IF EXISTS (
+        SELECT 1 FROM sys.server_audit_specifications s
+        WHERE s.name = N'SOC_SQL_SECURITY_AUDIT_SPEC'
+          AND NOT EXISTS (
+            SELECT 1 FROM sys.server_audit_specification_details d
+            WHERE d.server_specification_id = s.server_specification_id
+              AND d.audit_action_name = N'BATCH_COMPLETED_GROUP'
+          )
+      )
+      BEGIN
+        ALTER SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC]
+          WITH (STATE = OFF);
+        ALTER SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC]
+          ADD (BATCH_COMPLETED_GROUP)
+          WITH (STATE = ON);
+      END;
+
+      IF EXISTS (
+        SELECT 1 FROM sys.server_audit_specifications s
+        WHERE s.name = N'SOC_SQL_SECURITY_AUDIT_SPEC'
+          AND EXISTS (
+            SELECT required.audit_action_name
+            FROM (VALUES
+              (N'FAILED_LOGIN_GROUP'),
+              (N'SUCCESSFUL_LOGIN_GROUP'),
+              (N'SERVER_ROLE_MEMBER_CHANGE_GROUP'),
+              (N'SERVER_PRINCIPAL_CHANGE_GROUP'),
+              (N'DATABASE_PRINCIPAL_CHANGE_GROUP'),
+              (N'DATABASE_ROLE_MEMBER_CHANGE_GROUP'),
+              (N'SERVER_PERMISSION_CHANGE_GROUP'),
+              (N'DATABASE_PERMISSION_CHANGE_GROUP'),
+              (N'AUDIT_CHANGE_GROUP'),
+              (N'BATCH_COMPLETED_GROUP')
+            ) required(audit_action_name)
+            WHERE NOT EXISTS (
+              SELECT 1 FROM sys.server_audit_specification_details d
+              WHERE d.server_specification_id = s.server_specification_id
+                AND d.audit_action_name = required.audit_action_name
+            )
+          )
+      )
+      BEGIN
+        ;THROW 51002, 'SOC SQL audit specification is enabled but incomplete', 1;
+      END;
+
+      IF EXISTS (
+        SELECT 1 FROM sys.server_audits
+        WHERE name = N'SOC_SQL_SECURITY_AUDIT' AND is_state_enabled = 0
+      ) ALTER SERVER AUDIT [SOC_SQL_SECURITY_AUDIT] WITH (STATE = ON);
+
+      IF EXISTS (
+        SELECT 1 FROM sys.server_audit_specifications
+        WHERE name = N'SOC_SQL_SECURITY_AUDIT_SPEC' AND is_state_enabled = 0
+      ) ALTER SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC] WITH (STATE = ON);
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM sys.server_audits a
+        JOIN sys.server_audit_specifications s ON s.audit_guid = a.audit_guid
+        WHERE a.name = N'SOC_SQL_SECURITY_AUDIT'
+          AND a.type_desc = N'APPLICATION LOG'
+          AND a.is_state_enabled = 1
+          AND s.name = N'SOC_SQL_SECURITY_AUDIT_SPEC'
+          AND s.is_state_enabled = 1
+      )
+      BEGIN
+        ;THROW 51003, 'SOC SQL audit verification failed', 1;
+      END;
+      '@
+
+      $beforeSql = @'
+      SET NOCOUNT ON;
+      SELECT CAST(a.is_state_enabled AS int), a.type_desc,
+             CAST(s.is_state_enabled AS int), COUNT(d.audit_action_name)
+      FROM sys.server_audits a
+      JOIN sys.server_audit_specifications s ON s.audit_guid = a.audit_guid
+      LEFT JOIN sys.server_audit_specification_details d
+        ON d.server_specification_id = s.server_specification_id
+      WHERE a.name = N'SOC_SQL_SECURITY_AUDIT'
+        AND s.name = N'SOC_SQL_SECURITY_AUDIT_SPEC'
+      GROUP BY a.is_state_enabled, a.type_desc, s.is_state_enabled;
+      '@
+
+      $before = (& sqlcmd -S $pipe -E -b -h -1 -W -s '|' -Q $beforeSql | Out-String).Trim()
+      if ($LASTEXITCODE -ne 0) { throw 'Could not read SQL audit state before apply' }
+
+      $applyOutput = (& sqlcmd -S $pipe -E -b -Q $auditSql | Out-String).Trim()
+      if ($LASTEXITCODE -ne 0) {
+        throw ("SQL Server security audit apply failed: " + $applyOutput)
+      }
+
+      $verifySql = @'
+      SET NOCOUNT ON;
+      SELECT CAST(a.is_state_enabled AS int), a.type_desc,
+             CAST(s.is_state_enabled AS int), COUNT(d.audit_action_name)
+      FROM sys.server_audits a
+      JOIN sys.server_audit_specifications s ON s.audit_guid = a.audit_guid
+      LEFT JOIN sys.server_audit_specification_details d
+        ON d.server_specification_id = s.server_specification_id
+      WHERE a.name = N'SOC_SQL_SECURITY_AUDIT'
+        AND s.name = N'SOC_SQL_SECURITY_AUDIT_SPEC'
+      GROUP BY a.is_state_enabled, a.type_desc, s.is_state_enabled;
+      '@
+
+      $after = (& sqlcmd -S $pipe -E -b -h -1 -W -s '|' -Q $verifySql | Out-String).Trim()
+      if ($LASTEXITCODE -ne 0 -or $after -notmatch '^1\|APPLICATION LOG\|1\|10$') {
+        throw 'SQL Server security audit is not enabled with the expected target and ten actions'
+      }
+
+      $Ansible.Changed = ($before.Trim() -ne $after)
+      $Ansible.Result = @{
+        instance = $instance
+        target = 'APPLICATION_LOG'
+        audit_enabled = $true
+        specification_enabled = $true
+        action_group_count = 10
+      }
+  become: yes
+  become_method: runas
+  become_user: "{{ SQLSVCACCOUNT }}"
+  vars:
+    ansible_become_pass: "{{ SQLSVCPASSWORD }}"
