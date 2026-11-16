@@ -170,7 +170,8 @@ class SplunkUniversalForwarderExtensionTest(unittest.TestCase):
             variables = {'splunk_indexer_config_required': required}
             for task, expected in ((mandatory, required), (optional, not required)):
                 conditional = Conditional(loader=loader)
-                conditional.when = task['when']
+                condition = task['when']
+                conditional.when = condition if isinstance(condition, list) else [condition]
                 with self.subTest(required=required, task=task['name']):
                     self.assertEqual(conditional.evaluate_conditional(Templar(loader=loader, variables=variables), variables), expected)
 
