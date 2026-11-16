@@ -35,6 +35,27 @@
         ps_script: "{{script_path}}/{{item}}"
       loop: "{{lab.hosts[dict_key].scripts | default([]) }}"
 
+  post_tasks:
+    - name: Prepare explicitly selected legacy AD lab conditions
+      ansible.builtin.include_role:
+        name: settings/legacy_ad_lab
+      when: inventory_hostname in groups.get('legacy_ad_lab', [])
+
+    - name: Enable selected native lab logs without installing monitoring software
+      ansible.builtin.include_role:
+        name: settings/lab_auditing
+      when: inventory_hostname in groups.get('lab_auditing', [])
+
+    - name: Prepare unprivileged SOC identities on the selected root domain controller
+      ansible.builtin.include_role:
+        name: settings/soc_accounts
+      when: domain_name == 'GOAD-Light' and inventory_hostname in groups.get('parent_dc', []) and inventory_hostname in groups.get('lab_auditing', [])
+
+    - name: Disable Windows Update after successful Windows lab provisioning
+      ansible.builtin.include_role:
+        name: settings/no_updates
+      when: inventory_hostname in groups.get('no_update_after_install', [])
+
 - name: "Setup vulnerabilities with tasks"
   hosts: linux_domain
   become: true

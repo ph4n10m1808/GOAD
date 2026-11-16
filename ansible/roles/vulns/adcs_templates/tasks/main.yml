@@ -12,8 +12,14 @@
     state: directory
 
 - name: Install templates
-  win_shell: |
-    if (-not(Get-ADCSTemplate -DisplayName "{{item.value.template_name}}")) { New-ADCSTemplate -DisplayName "{{item.value.template_name}}" -JSON (Get-Content {{item.value.template_file}} -Raw) -Identity "{{domain_name}}\Domain Users" -Publish }
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-SelectedTemplate.ps1') }}"
+    parameters:
+      TemplateName: "{{ item.value.template_name }}"
+      TemplateFile: "{{ item.value.template_file }}"
+      EnrollPrincipal: '{{ domain }}\Domain Users'
+      ControlPrincipal: "{{ item.value.control_principal | default('') }}"
+    error_action: stop
   vars:
     ansible_become: yes
     ansible_become_method: runas

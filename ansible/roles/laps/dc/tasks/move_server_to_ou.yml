@@ -1,14 +1,23 @@
-- name: Move server to Laps OU
-  win_shell: |
-    try {
-      Get-ADOrganizationalUnit -Identity "{{laps_path}}" > $null
-      $server=Get-AdComputer -Identity "{{hostname}}"
-      Move-ADObject -Identity $server.DistinguishedName -TargetPath "{{laps_path}}"
-      $true
-    } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-      $false
-    }
-  vars:
-    hostname: "{{item.value.hostname}}"
-  when: item.value.use_laps is defined and item.value.use_laps == true and item.value.domain == domain
-  with_dict: "{{hosts_dict}}"
+- name: Move managed server to its LAPS OU without hiding failures
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param([string]$Computer, [string]$OrgUnit)
+      $ErrorActionPreference = 'Stop'
+      $ou = Get-ADOrganizationalUnit -Identity $OrgUnit
+      $server = Get-ADComputer -Identity $Computer
+      $suffix = ',' + $ou.DistinguishedName
+      $Ansible.Changed = $false
+      if (-not $server.DistinguishedName.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase)) {
+          Move-ADObject -Identity $server.DistinguishedName -TargetPath $ou.DistinguishedName
+          $Ansible.Changed = $true
+      }
+      $server = Get-ADComputer -Identity $Computer
+      if (-not $server.DistinguishedName.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase)) {
+          throw 'Managed computer was not moved into the selected LAPS OU'
+      }
+    parameters:
+      Computer: "{{ hosts_dict[item].hostname }}"
+      OrgUnit: "{{ laps_path }}"
+  when: hosts_dict[item].use_laps | default(false) | bool and hosts_dict[item].domain == domain
+  loop: "{{ hosts_dict.keys() | list }}"

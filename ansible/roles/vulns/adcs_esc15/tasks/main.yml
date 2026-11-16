@@ -1,20 +1,58 @@
-- name: Run ESC15
+# Intentionally permit enrollment in the built-in v1 Web Server lab template.
+# Exploitability still depends on the CA's CVE-2024-49019 patch level.
+- name: Publish and verify Web Server template enrollment for ESC15
   ansible.windows.win_powershell:
     script: |
-      # code from ludus module (also GPL)
-      # https://github.com/badsectorlabs/ludus_adcs/blob/main/files/esc15.ps1
-      # Import ADCSTemplate module
-      Import-Module ADCSTemplate
-
-      # Define the template and group name
-      $displayName = "Web Server"
-      $groupName = "Domain Users"
-
-      Set-ADCSTemplateACL -DisplayName $displayName -Type Allow -Identity $groupName -Enroll
+      [CmdletBinding()]
+      param ([string]$domainUsers, [string]$caServer)
+      $ErrorActionPreference = 'Stop'
+      Import-Module ADCSTemplate -ErrorAction Stop
+      $configuration = (Get-ADRootDSE).configurationNamingContext
+      $template = Get-ADObject -Identity "CN=WebServer,CN=Certificate Templates,CN=Public Key Services,CN=Services,$configuration" -Properties displayName,msPKI-Template-Schema-Version
+      if ([int]$template.'msPKI-Template-Schema-Version' -ne 1) { throw 'ESC15 expects the built-in v1 WebServer template' }
+      $sid = ([System.Security.Principal.NTAccount]$domainUsers).Translate([System.Security.Principal.SecurityIdentifier])
+      $enroll = [guid]'0e10c968-78fb-11d2-90d4-00c04f79dc55'
+      $path = 'AD:\' + $template.DistinguishedName
+      $existing = @((Get-Acl $path).Access | Where-Object {
+          $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value -and
+          [string]$_.AccessControlType -eq 'Allow' -and
+          ($_.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight) -and
+          $_.ObjectType -in @($enroll, [guid]::Empty)
+      })
+      $Ansible.Changed = $existing.Count -eq 0
+      if ($Ansible.Changed) {
+          Set-ADCSTemplateACL -DisplayName $template.DisplayName -Server $env:COMPUTERNAME -Type Allow -Identity $domainUsers -Enroll
+      }
+      $verified = @((Get-Acl $path).Access | Where-Object {
+          $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value -and
+          [string]$_.AccessControlType -eq 'Allow' -and
+          ($_.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight) -and
+          $_.ObjectType -in @($enroll, [guid]::Empty)
+      })
+      if ($verified.Count -eq 0) { throw 'WebServer enrollment ACL readback failed' }
+      $authorities = @(Get-ADObject -SearchBase "CN=Enrollment Services,CN=Public Key Services,CN=Services,$configuration" -LDAPFilter '(objectClass=pKIEnrollmentService)' -Properties dNSHostName,certificateTemplates | Where-Object {
+          $_.dNSHostName -eq $caServer -or ($caServer -notmatch '[.]' -and ([string]$_.dNSHostName).Split('.')[0] -eq $caServer)
+      })
+      if ($authorities.Count -ne 1) { throw 'ESC15 CA is missing or ambiguous' }
+      $ca = $authorities[0]
+      if ('WebServer' -notin @($ca.certificateTemplates)) {
+          & certutil.exe -config "$($ca.dNSHostName)\$($ca.Name)" -setcatemplates '+WebServer' | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'WebServer publication failed' }
+          $Ansible.Changed = $true
+          for ($attempt = 0; $attempt -lt 10; $attempt++) {
+              $ca = Get-ADObject -Identity $ca.DistinguishedName -Properties dNSHostName,certificateTemplates
+              if ('WebServer' -in @($ca.certificateTemplates)) { break }
+              Start-Sleep -Seconds 3
+          }
+      }
+      if ('WebServer' -notin @($ca.certificateTemplates)) { throw 'WebServer publication readback failed' }
+      [pscustomobject]@{Template='WebServer'; SchemaVersion=1; PrincipalSID=$sid.Value; CA=$ca.Name; Published=$true}
     error_action: stop
+    parameters:
+      domainUsers: '{{ lab.domains[domain].netbios_name }}\Domain Users'
+      caServer: "{{ lab.domains[domain].ca_server | default(lab.hosts[dict_key].hostname) }}"
   vars:
     ansible_become: yes
     ansible_become_method: runas
-    domain_name: "{{domain}}"
     ansible_become_user: "{{domain_username}}"
     ansible_become_password: "{{domain_password}}"

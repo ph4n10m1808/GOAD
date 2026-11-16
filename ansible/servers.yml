@@ -30,6 +30,14 @@
     executeasuser:  "{{lab.hosts[dict_key].mssql.executeasuser | default({}) }}"
     sa_password: "{{lab.hosts[dict_key].mssql.sa_password}}"
     linked_servers: "{{lab.hosts[dict_key].mssql.linked_servers | default({}) }}"
+  post_tasks:
+    - name: Configure native SQL audit events after the upstream SQL installer
+      ansible.builtin.include_role:
+        name: mssql
+        tasks_from: audit
+        apply:
+          tags: [mssql, lab_auditing]
+      tags: [mssql, lab_auditing]
 
 # Temporarily disabled for all labs: SSMS installer crashes during provisioning.
 # Uncomment this play to re-enable the optional SQL management GUI.

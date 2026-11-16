@@ -3,7 +3,7 @@
     script: |
       $ErrorActionPreference = 'Stop'
       $instance = '{{ sql_instance_name }}'
-      $pipe = 'np:\\.\pipe\MSSQL$' + $instance + '\sql\query'
+      $pipe = if ($instance -eq 'MSSQLSERVER') { 'np:\\.\pipe\sql\query' } else { 'np:\\.\pipe\MSSQL$' + $instance + '\sql\query' }
       $auditSql = @'
       SET NOCOUNT ON;
       IF EXISTS (
@@ -46,29 +46,37 @@
           ADD (SUCCESSFUL_LOGIN_GROUP),
           ADD (SERVER_ROLE_MEMBER_CHANGE_GROUP),
           ADD (SERVER_PRINCIPAL_CHANGE_GROUP),
+          ADD (SERVER_PRINCIPAL_IMPERSONATION_GROUP),
           ADD (DATABASE_PRINCIPAL_CHANGE_GROUP),
+          ADD (DATABASE_PRINCIPAL_IMPERSONATION_GROUP),
           ADD (DATABASE_ROLE_MEMBER_CHANGE_GROUP),
           ADD (SERVER_PERMISSION_CHANGE_GROUP),
           ADD (DATABASE_PERMISSION_CHANGE_GROUP),
-          ADD (AUDIT_CHANGE_GROUP),
-          ADD (BATCH_COMPLETED_GROUP);
+          ADD (AUDIT_CHANGE_GROUP);
       END;
 
-      IF EXISTS (
+      -- Extend an existing owned specification, preserving its other actions.
+      DECLARE @addImpersonation nvarchar(max) = N'';
+      SELECT @addImpersonation = @addImpersonation +
+        N'ALTER SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC] ADD (' + required.audit_action_name + N');'
+      FROM (VALUES (N'SERVER_PRINCIPAL_IMPERSONATION_GROUP'),
+                   (N'DATABASE_PRINCIPAL_IMPERSONATION_GROUP')) required(audit_action_name)
+      WHERE NOT EXISTS (
         SELECT 1 FROM sys.server_audit_specifications s
-        WHERE s.name = N'SOC_SQL_SECURITY_AUDIT_SPEC'
-          AND NOT EXISTS (
-            SELECT 1 FROM sys.server_audit_specification_details d
-            WHERE d.server_specification_id = s.server_specification_id
-              AND d.audit_action_name = N'BATCH_COMPLETED_GROUP'
-          )
-      )
+        JOIN sys.server_audit_specification_details d ON d.server_specification_id = s.server_specification_id
+        WHERE s.name = N'SOC_SQL_SECURITY_AUDIT_SPEC' AND d.audit_action_name = required.audit_action_name
+      );
+      IF @addImpersonation <> N''
       BEGIN
-        ALTER SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC]
-          WITH (STATE = OFF);
-        ALTER SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC]
-          ADD (BATCH_COMPLETED_GROUP)
-          WITH (STATE = ON);
+        ALTER SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC] WITH (STATE = OFF);
+        BEGIN TRY
+          EXEC sys.sp_executesql @addImpersonation;
+          ALTER SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC] WITH (STATE = ON);
+        END TRY
+        BEGIN CATCH
+          ALTER SERVER AUDIT SPECIFICATION [SOC_SQL_SECURITY_AUDIT_SPEC] WITH (STATE = ON);
+          THROW;
+        END CATCH;
       END;
 
       IF EXISTS (
@@ -81,12 +89,13 @@
               (N'SUCCESSFUL_LOGIN_GROUP'),
               (N'SERVER_ROLE_MEMBER_CHANGE_GROUP'),
               (N'SERVER_PRINCIPAL_CHANGE_GROUP'),
+              (N'SERVER_PRINCIPAL_IMPERSONATION_GROUP'),
               (N'DATABASE_PRINCIPAL_CHANGE_GROUP'),
+              (N'DATABASE_PRINCIPAL_IMPERSONATION_GROUP'),
               (N'DATABASE_ROLE_MEMBER_CHANGE_GROUP'),
               (N'SERVER_PERMISSION_CHANGE_GROUP'),
               (N'DATABASE_PERMISSION_CHANGE_GROUP'),
-              (N'AUDIT_CHANGE_GROUP'),
-              (N'BATCH_COMPLETED_GROUP')
+              (N'AUDIT_CHANGE_GROUP')
             ) required(audit_action_name)
             WHERE NOT EXISTS (
               SELECT 1 FROM sys.server_audit_specification_details d
@@ -159,17 +168,63 @@
       '@
 
       $after = (& sqlcmd -S $pipe -E -b -h -1 -W -s '|' -Q $verifySql | Out-String).Trim()
-      if ($LASTEXITCODE -ne 0 -or $after -notmatch '^1\|APPLICATION LOG\|1\|10$') {
-        throw 'SQL Server security audit is not enabled with the expected target and ten actions'
+      if ($LASTEXITCODE -ne 0 -or -not ($after -match '^1\|APPLICATION LOG\|1\|(\d+)$') -or [int]$Matches[1] -lt 11) {
+        throw 'SQL Server security audit is not enabled with the expected target and eleven required server actions'
       }
 
-      $Ansible.Changed = ($before.Trim() -ne $after)
+      # SQL2019 supports BATCH_COMPLETED_GROUP at database scope, not server scope.
+      # Audit master (administrative commands) and online writable user databases.
+      $databaseAuditSql = @'
+      SET NOCOUNT ON;
+      DECLARE @db sysname, @statement nvarchar(max);
+      DECLARE audit_databases CURSOR LOCAL FAST_FORWARD FOR
+        SELECT name FROM sys.databases
+        WHERE (database_id = 1 OR database_id > 4) AND state = 0
+          AND is_read_only = 0 AND source_database_id IS NULL;
+      OPEN audit_databases;
+      FETCH NEXT FROM audit_databases INTO @db;
+      WHILE @@FETCH_STATUS = 0
+      BEGIN
+        SET @statement = N'USE ' + QUOTENAME(@db) + N';
+        IF EXISTS (SELECT 1 FROM sys.database_audit_specifications
+          WHERE name=N''SOC_SQL_BATCH_AUDIT_SPEC'' AND audit_guid <>
+            (SELECT audit_guid FROM sys.server_audits WHERE name=N''SOC_SQL_SECURITY_AUDIT''))
+          THROW 51004, ''SOC database specification belongs to another audit'', 1;
+        IF NOT EXISTS (SELECT 1 FROM sys.database_audit_specifications
+          WHERE name=N''SOC_SQL_BATCH_AUDIT_SPEC'')
+        BEGIN
+          CREATE DATABASE AUDIT SPECIFICATION [SOC_SQL_BATCH_AUDIT_SPEC]
+          FOR SERVER AUDIT [SOC_SQL_SECURITY_AUDIT] ADD (BATCH_COMPLETED_GROUP) WITH (STATE=ON);
+          PRINT ''SOC_AUDIT_CHANGED'';
+        END;
+        IF EXISTS (SELECT 1 FROM sys.database_audit_specifications
+          WHERE name=N''SOC_SQL_BATCH_AUDIT_SPEC'' AND is_state_enabled=0)
+        BEGIN
+          ALTER DATABASE AUDIT SPECIFICATION [SOC_SQL_BATCH_AUDIT_SPEC] WITH (STATE=ON);
+          PRINT ''SOC_AUDIT_CHANGED'';
+        END;
+        IF NOT EXISTS (SELECT 1 FROM sys.database_audit_specifications s
+          JOIN sys.database_audit_specification_details d
+            ON d.database_specification_id=s.database_specification_id
+          WHERE s.name=N''SOC_SQL_BATCH_AUDIT_SPEC'' AND s.is_state_enabled=1
+            AND d.audit_action_name=N''BATCH_COMPLETED_GROUP'')
+          THROW 51005, ''Database batch audit verification failed'', 1;';
+        EXEC sys.sp_executesql @statement;
+        FETCH NEXT FROM audit_databases INTO @db;
+      END;
+      CLOSE audit_databases; DEALLOCATE audit_databases;
+      '@
+      $batchOutput = (& sqlcmd -S $pipe -E -b -Q $databaseAuditSql | Out-String).Trim()
+      if ($LASTEXITCODE -ne 0) { throw ('SQL database batch audit failed: ' + $batchOutput) }
+
+      $Ansible.Changed = ($before.Trim() -ne $after -or $batchOutput -match 'SOC_AUDIT_CHANGED')
       $Ansible.Result = @{
         instance = $instance
         target = 'APPLICATION_LOG'
         audit_enabled = $true
         specification_enabled = $true
-        action_group_count = 10
+        required_server_action_groups = 11
+        statement_audit_scope = 'master and online writable user databases; tempdb/model/msdb excluded'
       }
   become: yes
   become_method: runas

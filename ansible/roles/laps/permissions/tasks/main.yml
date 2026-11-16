@@ -1,5 +1,59 @@
 - name: Add user or group permission to read Laps
   win_shell: |
+    $ErrorActionPreference = 'Stop'
+    Import-Module AdmPwd.PS -ErrorAction Stop
     Set-AdmPwdReadPasswordPermission -OrgUnit "{{laps_path}}" -AllowedPrincipals "{{item}}"
   with_items: "{{laps_readers}}"
   when: laps_readers is defined
+
+- name: Audit legacy LAPS password access without changing delegated read permissions
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param([string]$OrgUnit)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      Import-Module AdmPwd.PS -ErrorAction Stop
+      Import-Module ActiveDirectory -ErrorAction Stop
+      $server = $env:COMPUTERNAME
+      $ou = Get-ADOrganizationalUnit -Identity $OrgUnit -Server $server -ErrorAction Stop
+      # AdmPwd.PS does not create AD:. Use a runspace-local, unique provider
+      # drive so ACL reads use the selected DC without altering an existing AD:.
+      $driveName = 'SocLapsAudit_' + [guid]::NewGuid().ToString('N')
+      $driveCreated = $false
+      $sections = [System.Security.AccessControl.AccessControlSections]
+      try {
+          New-PSDrive -Name $driveName -PSProvider ActiveDirectory -Root '' -Server $server -Scope Local -ErrorAction Stop | Out-Null
+          $driveCreated = $true
+          $path = $driveName + ':\' + $ou.DistinguishedName
+          $before = Get-Acl -Path $path -Audit -ErrorAction Stop
+          $dacl = $before.GetSecurityDescriptorSddlForm($sections::Access)
+          $sacl = $before.GetSecurityDescriptorSddlForm($sections::Audit)
+          $schema = (Get-ADRootDSE -Server $server -ErrorAction Stop).schemaNamingContext
+          $attributes = @(foreach ($entry in (Get-ADObject -Server $server -SearchBase $schema -LDAPFilter '(lDAPDisplayName=ms-Mcs-AdmPwd)' -Properties schemaIDGUID -ErrorAction Stop)) {
+              if ($null -ne $entry) { $entry }
+          })
+          if ($attributes.Count -ne 1) { throw 'LAPS password schema attribute is missing or ambiguous' }
+          try { $attributeId = [Guid]::new([byte[]]$attributes[0].schemaIDGUID) }
+          catch { throw 'LAPS password schemaIDGUID is invalid' }
+          if ($attributeId -eq [Guid]::Empty) { throw 'LAPS password schemaIDGUID is empty' }
+          $everyone = [System.Security.Principal.SecurityIdentifier]'S-1-1-0'
+          Set-AdmPwdAuditing -Identity $ou.DistinguishedName -AuditedPrincipals $everyone.Translate([System.Security.Principal.NTAccount]).Value -ErrorAction Stop | Out-Null
+          $after = Get-Acl -Path $path -Audit -ErrorAction Stop
+          if ($after.GetSecurityDescriptorSddlForm($sections::Access) -ne $dacl) {
+              throw 'LAPS auditing unexpectedly changed the OU access permissions'
+          }
+          $rules = @($after.GetAuditRules($true, $false, [System.Security.Principal.SecurityIdentifier]) | Where-Object {
+              $_.IdentityReference.Value -eq $everyone.Value -and $_.ObjectType -eq $attributeId -and
+              $_.AuditFlags -ne [System.Security.AccessControl.AuditFlags]::None
+          })
+          if ($rules.Count -eq 0) { throw 'LAPS password-attribute auditing was not verified on the selected OU' }
+          $Ansible.Changed = $after.GetSecurityDescriptorSddlForm($sections::Audit) -ne $sacl
+          [pscustomobject]@{ou=$ou.DistinguishedName;controller=$server;password_access_auditing=$true;read_permissions_preserved=$true}
+      } finally {
+          if ($driveCreated) { Remove-PSDrive -Name $driveName -Scope Local -Force -ErrorAction Stop }
+      }
+    parameters:
+      OrgUnit: "{{ laps_path }}"
+    error_action: stop
+  when: laps_audit | default(false) | bool

@@ -17,3 +17,15 @@
     domain_username: "{{admin_user}}@{{domain}}"
     domain_password: "{{lab.domains[domain].domain_password}}"
     netbios_name: "{{lab.domains[domain].netbios_name}}"
+  post_tasks:
+    - name: Keep the selected forest-root PDC on external NTP and fixed UTC+7
+      ansible.windows.win_powershell:
+        script: "{{ lookup('file', playbook_dir ~ '/roles/common/files/Configure-RootPdcTime.ps1') }}"
+        parameters:
+          PeerHosts: "{{ goad_root_ntp_peers.split(',') }}"
+      vars:
+        ansible_become: true
+        ansible_become_method: runas
+        ansible_become_user: "{{ domain_username }}"
+        ansible_become_password: "{{ domain_password }}"
+      when: goad_root_ntp_peers is defined

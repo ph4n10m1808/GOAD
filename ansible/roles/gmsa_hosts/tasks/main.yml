@@ -1,25 +1,82 @@
-- name: Install-WindowsFeature RSAT-AD-PowerShell
+- name: Install Windows AD PowerShell tools on selected gMSA hosts
   ansible.windows.win_feature:
-    name: RSAT-AD-PowerShell 
+    name: RSAT-AD-PowerShell
     state: present
-  when: "hostname in item.value.gMSA_HostNames"
+  register: gmsa_ad_tools
+  when: hostname in item.value.gMSA_HostNames
   with_dict: "{{ ad_gmsa }}"
 
-- name: Install ADServiceAccount
+- name: Read the selected AD PowerShell feature pending state
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      Import-Module ServerManager -ErrorAction Stop
+      $feature = Get-WindowsFeature -Name RSAT-AD-PowerShell -ErrorAction Stop
+      $Ansible.Result = @{install_pending=([string]$feature.InstallState -eq 'InstallPending')}
+    error_action: stop
+  register: gmsa_ad_tools_state
+  when: hostname in item.value.gMSA_HostNames
+  with_dict: "{{ ad_gmsa }}"
+
+- name: Complete the selected AD PowerShell feature installation when required
+  ansible.windows.win_reboot:
+    reboot_timeout: 900
+    post_reboot_delay: 15
+  when: >-
+    (gmsa_ad_tools.results | default([]) |
+    selectattr('reboot_required', 'defined') |
+    selectattr('reboot_required') | list | length > 0) or
+    (gmsa_ad_tools_state.results | default([]) |
+    selectattr('result', 'defined') |
+    selectattr('result.install_pending') | list | length > 0)
+
+- name: Install and verify gMSA computer access without changing a service identity
   ansible.windows.win_powershell:
     script: |
       [CmdletBinding()]
-        param (
-          [String]
-          $gMSA_Name
-      )
-      Install-ADServiceAccount -Identity $gMSA_Name
+      param([string]$gMSA_Name)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $Ansible.Result = @{retryable=$false}
+      # A feature can report Installed=true while its state is InstallPending.
+      # Missing tools are deterministic prerequisites, not gMSA replication waits.
+      Import-Module ServerManager -ErrorAction Stop
+      $feature = Get-WindowsFeature -Name RSAT-AD-PowerShell -ErrorAction Stop
+      if (-not $feature.Installed -or [string]$feature.InstallState -ne 'Installed') {
+          throw 'RSAT-AD-PowerShell installation is incomplete; complete its required reboot before gMSA setup'
+      }
+      Import-Module ActiveDirectory -ErrorAction Stop
+      try {
+          $ready = Test-ADServiceAccount -Identity $gMSA_Name -WarningAction SilentlyContinue -ErrorAction Stop
+          if (-not $ready) {
+              Install-ADServiceAccount -Identity $gMSA_Name -ErrorAction Stop
+              $Ansible.Changed = $true
+          }
+          if (-not (Test-ADServiceAccount -Identity $gMSA_Name -WarningAction SilentlyContinue -ErrorAction Stop)) {
+              $Ansible.Result.retryable = $true
+              throw 'Selected computer cannot yet use the gMSA; check KDS replication and retrieval permissions'
+          }
+      } catch {
+          if ($_.Exception.GetType().FullName -in @(
+              'Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException',
+              'Microsoft.ActiveDirectory.Management.ADServerDownException')) {
+              $Ansible.Result.retryable = $true
+          }
+          throw
+      }
+      # This tests the computer identity, not an administrator reading its password.
+      [pscustomobject]@{account=$gMSA_Name;host=$env:COMPUTERNAME;ready_for_use=$true;service_identity_changed=$false}
+    error_action: stop
     parameters:
-        gMSA_Name: "{{item.value.gMSA_Name}}"
+      gMSA_Name: "{{ item.value.gMSA_Name }}"
   vars:
-    ansible_become: yes
+    ansible_become: true
     ansible_become_method: runas
-    ansible_become_user: "{{domain_username}}"
-    ansible_become_password: "{{domain_password}}"
-  when: "hostname in item.value.gMSA_HostNames"
+    ansible_become_user: SYSTEM
+  when: hostname in item.value.gMSA_HostNames
   with_dict: "{{ ad_gmsa }}"
+  register: gmsa_host_install
+  until: gmsa_host_install is success or not (gmsa_host_install.result.retryable | default(false) | bool)
+  retries: 12
+  delay: 10

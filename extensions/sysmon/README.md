@@ -12,7 +12,15 @@ From the GOAD console:
 install_extension sysmon
 ```
 
-The role is idempotent: it installs Sysmon when absent and reapplies the configuration only when the downloaded, checksum-verified config changes. The Sysmon binary is also checked for a valid Microsoft Authenticode signature before installation.
+The role is idempotent: it installs Sysmon when absent and reapplies only a changed effective configuration. The Sysmon binary is also checked for a valid Microsoft Authenticode signature before installation.
+
+## Network connections: Event ID 3
+
+`sysmon_network_connect_all: true` records all NetworkConnect events for the GOAD lab. The pinned upstream policy already records a selective subset; this option replaces only its two NetworkConnect rule groups with one native empty exclude filter. Other event filters and the upstream attribution stay unchanged. This increases network event volume; it does not enable a response action or change lab vulnerabilities.
+
+The checksum-verified original is retained separately as `sysmonconfig-upstream.xml`; `sysmonconfig-export.xml` is the managed effective policy. Generation stops if the pinned hash or network-filter structure differs. Set `sysmon_network_connect_all: false` to use the original selective upstream policy. Native `Sysmon64.exe -c` applies a changed policy on an already installed service; no service reinstall is required. [Elastic Event ID 3 guidance](https://www.elastic.co/docs/reference/security/prebuilt-rules/audit_policies/windows/sysmon_eventid3_network_connection).
+
+Source preparation does not install Sysmon or enroll Elastic Agent. Verify the active native configuration, a fresh local Event ID 3 and downstream collection after a separately selected deployment.
 
 ## ELK monitoring
 

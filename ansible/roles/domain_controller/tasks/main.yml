@@ -136,15 +136,17 @@
           $IPAddress
       )
 
+      $desired = @($IPAddress.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+      if ($desired.Count -eq 0) { throw 'At least one DNS forwarder is required' }
+      foreach ($address in $desired) { [System.Net.IPAddress]::Parse($address) | Out-Null }
       $forwarder = Get-DnsServerForwarder
       $forwarderAddresses = @($forwarder.IPAddress | ForEach-Object { $_.ToString() })
 
-      if ($forwarderAddresses.Count -eq 1 -and
-          $forwarderAddresses[0] -eq $IPAddress -and
+      if (($forwarderAddresses -join ',') -eq ($desired -join ',') -and
           $forwarder.UseRootHint -eq $false) {
           $Ansible.Changed = $false
       } else {
-          Set-DnsServerForwarder -IPAddress @($IPAddress) -UseRootHint $false
+          Set-DnsServerForwarder -IPAddress $desired -UseRootHint $false
           $Ansible.Changed = $true
       }
     parameters:

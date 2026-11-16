@@ -1,36 +1,59 @@
-# Code adapted from ludus adcs module : https://github.com/badsectorlabs/ludus_adcs/blob/main/files/esc7.ps1
-# RUN me on DC
-- name: Install module PSPKI
-  win_shell: |
-    Install-Module PSPKI -Force
+# Intentionally grant ManageCA in the selected isolated GOAD lab.
+- name: Install module PSPKI if absent
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      # ADCSAdministration exports overlapping template commands; keep both modules installed.
+      if (-not (Get-Module -ListAvailable -Name PSPKI)) {
+          Install-Module -Name PSPKI -Repository PSGallery -Scope AllUsers -Force -AllowClobber -ErrorAction Stop
+          $Ansible.Changed = $true
+      }
+      if (-not (Get-Module -ListAvailable -Name PSPKI)) { throw 'PSPKI is not available after installation' }
+    error_action: stop
 
-- name: ADD ManageCA rights
+- name: Grant and verify ManageCA rights on the selected CA
   ansible.windows.win_powershell:
     script: |
       [CmdletBinding()]
-      param (
-          [String]
-          $caManagerUser
-      )
-      if (Get-Module -ListAvailable -Name PSPKI) {
-        $Ansible.Changed = $false
-      } else {
-        Import-Module -Name PSPKI
-        $caHostname = Get-CertificationAuthority | Select-Object -ExpandProperty ComputerName
-        try {
-          Get-CertificationAuthority "$caHostname" | Get-CertificationAuthorityAcl | Add-CertificationAuthorityAcl -Identity "$caManagerUser" -AccessType "Allow" -AccessMask "ManageCa" | Set-CertificationAuthorityAcl -RestartCA
-          $Ansible.Changed = $true
-        } catch {
-          $Ansible.Changed = $false
-        }
+      param ([string]$caManagerUser, [string]$caServer)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      Set-StrictMode -Version 2.0
+      Import-Module PSPKI -ErrorAction Stop
+      $manageCA = [int][SysadminsLV.PKI.Security.AccessControl.CertSrvRights]::ManageCA
+      if ($caServer -match '[*?]') { throw 'A single explicit CA host is required' }
+      $ca = @(PSPKI\Get-CertificationAuthority -ComputerName $caServer)
+      if ($ca.Count -ne 1) { throw 'Selected CA is missing or ambiguous' }
+      $sid = ([System.Security.Principal.NTAccount]$caManagerUser).Translate([System.Security.Principal.SecurityIdentifier])
+      $acl = $ca[0] | PSPKI\Get-CertificationAuthorityAcl
+      $allow = 0
+      foreach ($rule in $acl.Access) {
+          if ($rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value) {
+              if ([string]$rule.AccessControlType -eq 'Deny' -and ([int]$rule.Rights -band $manageCA)) {
+                  throw 'Selected principal has an explicit ManageCA deny'
+              }
+              if ([string]$rule.AccessControlType -eq 'Allow') { $allow = $allow -bor [int]$rule.Rights }
+          }
       }
+      $Ansible.Changed = ($allow -band $manageCA) -eq 0
+      if ($Ansible.Changed) {
+          $acl | PSPKI\Add-CertificationAuthorityAcl -Identity $caManagerUser -AccessType Allow -AccessMask ($allow -bor $manageCA) |
+              PSPKI\Set-CertificationAuthorityAcl -RestartCA | Out-Null
+      }
+      $verified = @($ca[0] | PSPKI\Get-CertificationAuthorityAcl | Select-Object -ExpandProperty Access | Where-Object {
+          $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value -and
+          [string]$_.AccessControlType -eq 'Allow' -and ([int]$_.Rights -band $manageCA)
+      })
+      if ($verified.Count -eq 0) { throw 'ManageCA permission readback failed' }
+      [pscustomobject]@{Server=$caServer; PrincipalSID=$sid.Value; ManageCA=$true}
     error_action: stop
     parameters:
-      caManagerUser: "{{item.value.ca_manager}}"
+      caManagerUser: "{{ item.value.ca_manager }}"
+      caServer: "{{ item.value.ca_server | default(lab.domains[domain].ca_server | default(lab.hosts[dict_key].hostname)) }}"
   vars:
     ansible_become: yes
     ansible_become_method: runas
-    domain_name: "{{domain}}"
     ansible_become_user: "{{domain_username}}"
     ansible_become_password: "{{domain_password}}"
   with_dict: "{{ vulns_vars }}"

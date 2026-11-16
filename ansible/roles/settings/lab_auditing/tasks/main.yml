@@ -1,0 +1,54 @@
+---
+- name: Configure native Windows event generation without installing an Agent
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', playbook_dir ~ '/../extensions/elastic_agent/ansible/roles/elastic_agent_windows/files/Configure-SocAuditing.ps1') }}"
+  register: lab_windows_audit
+  changed_when: (lab_windows_audit.output | last | from_json).changed | length > 0
+
+- name: Configure local CA auditing while preserving the selected ESC conditions
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-LabCaAuditing.ps1') }}"
+  when: inventory_hostname in groups.get('adcs', [])
+
+- name: Preserve native W3C fields on the CA Web Enrollment IIS site
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', role_path ~ '/../../iis/files/Configure-SocIisLogging.ps1') }}"
+    parameters:
+      VerifyLocalHttp: false
+      CreateBackup: false
+  register: lab_ca_iis_logging
+  changed_when: (lab_ca_iis_logging.output | last | from_json).changed | bool
+  when: inventory_hostname in groups.get('adcs', [])
+
+- name: Audit domain replication rights without granting or restricting access
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-LabReplicationAuditing.ps1') }}"
+  vars:
+    ansible_become: true
+    ansible_become_method: runas
+    ansible_become_user: "{{ lab.hosts[dict_key].domain }}\\{{ admin_user }}"
+    ansible_become_password: "{{ lab.domains[lab.hosts[dict_key].domain].domain_password }}"
+  when: inventory_hostname in groups.get('dc', [])
+
+- name: Audit selected gMSA changes and managed-password reads
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-LabGmsaAuditing.ps1') }}"
+    parameters:
+      AccountName: "{{ item.value.gMSA_Name }}"
+  vars:
+    ansible_become: true
+    ansible_become_method: runas
+    ansible_become_user: "{{ lab.hosts[dict_key].domain }}\\{{ admin_user }}"
+    ansible_become_password: "{{ lab.domains[lab.hosts[dict_key].domain].domain_password }}"
+  loop: "{{ lab.domains[lab.hosts[dict_key].domain].gmsa | default({}) | dict2items }}"
+  when: inventory_hostname in groups.get('dc', [])
+
+- name: Audit selected certificate-template and issuance-policy changes
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-LabCertificateObjectAuditing.ps1') }}"
+  vars:
+    ansible_become: true
+    ansible_become_method: runas
+    ansible_become_user: "{{ lab.hosts[dict_key].domain }}\\{{ admin_user }}"
+    ansible_become_password: "{{ lab.domains[lab.hosts[dict_key].domain].domain_password }}"
+  when: inventory_hostname in groups.get('adcs', [])

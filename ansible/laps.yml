@@ -12,6 +12,7 @@
   vars:
     domain: "{{lab.hosts[dict_key].domain}}"
     laps_path: "{{lab.domains[domain].laps_path if lab.domains[domain].laps_path is defined else false}}"
+    laps_schema_host: "{{ lab.domains[domain].laps_schema_host | default(inventory_hostname) }}"
     hosts_dict: "{{lab.hosts}}"
 
 - name: configure laps on servers
@@ -24,7 +25,7 @@
     use_laps: "{{lab.hosts[dict_key].use_laps if lab.hosts[dict_key].use_laps is defined else false}}"
 
 
-- name: verify and show laps passwords
+- name: verify laps publication without retrieving passwords
   hosts: laps_dc
   roles:
     - { role: 'laps/verify', tags: 'laps-verify'}
@@ -41,3 +42,4 @@
     domain: "{{lab.hosts[dict_key].domain}}"
     laps_path: "{{lab.domains[domain].laps_path if lab.domains[domain].laps_path is defined else false}}"
     laps_readers: "{{lab.domains[domain].laps_readers  | default([]) }}"
+    laps_audit: "{{ lab.domains[domain].laps_audit | default(false) | bool }}"

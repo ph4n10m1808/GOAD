@@ -91,20 +91,65 @@
     post_reboot_delay: 30
   when: secure_channel_repair.changed
 
-- name: "Add member server"
-  win_domain_membership:
-    dns_domain_name: "{{member_domain}}"
-    domain_admin_user: "{{domain_username}}"
-    domain_admin_password: "{{domain_password}}"
-#    domain_ou_path: "{{member_domain_ou_path}}"
-    state: domain
-  register: domain_state
-  until: domain_state is not failed
-  retries: 3
-  delay: 20
+- name: Join the member domain without replaying an uncertain join
+  block:
+    - name: "Add member server"
+      ansible.windows.win_domain_membership:
+        dns_domain_name: "{{ member_domain }}"
+        domain_admin_user: "{{ domain_username }}"
+        domain_admin_password: "{{ domain_password }}"
+        state: domain
+      register: domain_state
+  rescue:
+    - name: Preserve real domain-join failures
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('Domain join failed') }}"
+      when: >-
+        not ((ansible_failed_result.msg | default('')) is
+        search('RemoteDisconnected|Remote end closed connection|Connection aborted|Connection reset by peer'))
+
+    # Add-Computer can commit before WinRM loses its response. Reconnect and
+    # inspect Windows instead of blindly sending the same join again.
+    - name: Wait for WinRM after an interrupted domain-join response
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+        sleep: 10
+
+    - name: Verify whether the interrupted domain join committed
+      ansible.windows.win_powershell:
+        script: |
+          param([String] $DomainName)
+          $Ansible.Changed = $false
+          $computer = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+          if (-not $computer.PartOfDomain -or $computer.Domain -ne $DomainName) {
+              throw 'Domain join response was lost and membership is not confirmed; inspect NetSetup.log before retrying'
+          }
+        parameters:
+          DomainName: "{{ member_domain }}"
+
+    - name: Complete the required reboot after a confirmed interrupted join
+      ansible.builtin.set_fact:
+        domain_state:
+          reboot_required: true
 
 - name: Reboot if needed
   win_reboot:
     reboot_timeout: 1500
     post_reboot_delay: 100
   when: domain_state.reboot_required
+
+- name: Verify the joined domain and secure channel before continuing
+  ansible.windows.win_powershell:
+    script: |
+      param([String] $DomainName, [String] $DomainController)
+      $Ansible.Changed = $false
+      $computer = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+      if (-not $computer.PartOfDomain -or $computer.Domain -ne $DomainName) {
+          throw 'The member server is not joined to the expected domain'
+      }
+      if (-not (Test-ComputerSecureChannel -Server $DomainController -ErrorAction Stop)) {
+          throw 'The member server domain secure channel is not healthy'
+      }
+    parameters:
+      DomainName: "{{ member_domain }}"
+      DomainController: "{{ lab.hosts[dns_domain].hostname }}.{{ member_domain }}"

@@ -1,7 +1,18 @@
-# Elastic Agent 8.19.22
+# Elastic Agent 9.5.6
 
 Extension cài Elastic Agent trên các máy Windows thuộc nhóm inventory `domain`,
 đăng ký vào Fleet Server đang có. Không tạo thêm VM hay Fleet Server.
+
+## One CLI command for an existing lab
+
+The CLI task `install_extension` runs repeated `-e` selections in order and exits nonzero on the first failed installer. With `-i`, it loads that exact existing instance; it does not create/rebuild VMs. Existing extension inventories, including Exchange, are retained. Install Sysmon first, then Elastic Agent:
+
+```bash
+./goad.sh -t install_extension -i INSTANCE_ID -e sysmon -e elastic_agent \
+  --fleet-url https://fleet.example.com:8220 --fleet-ca /path/to/public-ca.crt --agent-version 9.5.6
+```
+
+The Windows policy enrollment token is requested through the existing hidden prompt. Never use the Fleet Server service token or the Zeek policy token. This prepares/runs the same native extension playbooks as the console; no separate installer or Windows service patch is introduced.
 
 ## Sử dụng trong GOAD console
 
@@ -12,17 +23,11 @@ install_extension elastic_agent
 ```
 
 Console hỏi IP/hostname Fleet Server, enrollment token (ẩn khi nhập), phiên bản
-(mặc định `8.19.22`) và đường dẫn CA `.crt` trên máy đang chạy GOAD.
-Hoặc truyền trực tiếp các tùy chọn:
+(mặc định `9.5.6`) và đường dẫn CA `.crt` trên máy đang chạy GOAD.
+Truyền URL và CA nếu cần; bỏ `--token` để nhập token ẩn, tránh lưu secret trong lịch sử lệnh:
 
 ```text
-install_extension elastic_agent --ip 192.168.50.10 --token YOUR_ENROLLMENT_TOKEN --crt "/path/to/elk/certs/ca/ca.crt" --version 8.19.22
-```
-
-Có thể bỏ `--token` để nhập token ẩn, tránh lưu token vào lịch sử lệnh:
-
-```text
-install_extension elastic_agent --ip 192.168.50.10 --crt "/path/to/elk/certs/ca/ca.crt" --version 8.19.22
+install_extension elastic_agent --ip https://fleet.example.com:8220 --crt "/path/to/public-ca.crt" --version 9.5.6
 ```
 
 IP đơn được chuyển thành `https://IP:8220`; có thể nhập
@@ -50,26 +55,11 @@ cấu hình xuất hiện khi bước `install_extension` bắt đầu.
 - Máy Windows cần truy cập Fleet Server (thường `8220`), Elasticsearch output
   (thường `9200`) và HTTPS `artifacts.elastic.co` để tải agent/checksum SHA512.
 
-## Lưu ý riêng cho profile dedicated-es-disk
+## Output và policy Windows
 
-Profile hiện dùng output mặc định `https://shared-elasticsearch:9200` với CA
-`/etc/elastic-agent/certs/elastic-ca.crt`. Đây là cấu hình cho container Linux.
-Trước khi lấy enrollment token, tạo/chọn policy Windows với output Elasticsearch
-có địa chỉ mà GOAD truy cập được, chẳng hạn `https://192.168.50.10:9200`
-**nếu đó là địa chỉ triển khai thực tế và có trong SAN chứng chỉ Elasticsearch**.
-Đặt Advanced YAML của output Windows:
+Dùng token riêng của policy `soc-goad-windows`. Output Fleet phải trỏ đến HTTPS Elasticsearch mà GOAD truy cập được, có SAN chứng thư phù hợp. Cấu hình hiện tại nhúng CA công khai vào output và dùng xác minh đầy đủ, không yêu cầu Windows đọc file từ thư mục SIEM. CA local của bước enrollment nằm ở `C:\ProgramData\Elastic\certs\elastic-ca.crt`.
 
-```yaml
-ssl.certificate_authorities:
-  - 'C:\ProgramData\Elastic\certs\elastic-ca.crt'
-ssl.verification_mode: full
-```
-
-Gán output đó cho cả dữ liệu và monitoring của policy Windows. Cách này áp dụng
-khi Fleet và Elasticsearch dùng cùng CA như profile đã kiểm tra; nếu khác CA,
-file cung cấp phải chứa cả hai CA. Giữ output Linux riêng cho Fleet Server.
-Thêm các integration thu thập Windows/System/Sysmon cần thiết vào policy;
-extension không tự sửa cấu hình Kibana hoặc tạo enrollment token.
+Policy native đã có System, Windows/Sysmon/PowerShell, Defend Detect, IIS, MSSQL và các channel vận hành bổ sung. SQL Audit hiện ghi vào Application event33205; System Application loại riêng event này vì MSSQL đã thu thập. AD Entity Analytics đang tắt chờ tài khoản/CA LDAPS và một collector duy nhất. Zeek dùng policy/token khác.
 
 ## Chạy lại và xác minh
 
@@ -103,3 +93,9 @@ ansible-playbook -i ad/GOAD/data/inventory -i extensions/elastic_agent/inventory
 
 Tham chiếu: [lệnh Elastic Agent](https://www.elastic.co/guide/en/fleet/8.19/elastic-agent-cmd-options.html),
 [TLS cho Fleet Server](https://www.elastic.co/guide/en/fleet/8.19/secure-connections.html).
+
+## Native logging and service identities — 14/11/2026
+
+Elastic Agent dùng archive chính thức, giữ kiểm SHA512, không vá binary. Audit/channel log được cấu hình bằng lệnh Windows native, không tạo backup mới trên GOAD theo yêu cầu hiện tại. Cấu hình DNS forwarder GOAD-Light hỗ trợ danh sách phân cách bằng dấu phẩy; dữ liệu lab dùng hai upstream đã kiểm chứng, không thay DNS client AD.
+
+Hai tài khoản AD `soc_siem` và `soc_soar` được chuẩn bị tự động trong bước cuối của Ansible GOAD-Light trên DC cha: SIEM chỉ đọc AD bằng quyền Domain Users; SOAR tắt, chưa có quyền ứng phó. Role `settings/soc_accounts` lưu mật khẩu sinh một lần ở thư mục riêng `.soc-credentials/` của instance, dùng sensitive parameters/no_log; guest chỉ giữ SID/GUID và fingerprint để tránh tự nhận/reset tài khoản có sẵn. Tài khoản tên cũ dùng dấu gạch ngang sẽ chặn tạo mới để người vận hành quyết định migration. Đợt chuẩn bị14/11 là source-only. Readback17/11 đã xác minh tài khoản trên lab dựng lại và bốn Agent ACK75; đây không phải bảo đảm mọi lần dựng hoặc mọi nguồn log đều đã được nghiệm thu.

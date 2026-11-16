@@ -1,0 +1,15 @@
+---
+- name: Verify the selected historical DC build and native test prerequisites
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Verify-LegacyDcLab.ps1') }}"
+  vars:
+    ansible_become: true
+    ansible_become_method: runas
+    ansible_become_user: "{{ lab.hosts[dict_key].domain }}\\{{ admin_user }}"
+    ansible_become_password: "{{ lab.domains[lab.hosts[dict_key].domain].domain_password }}"
+  when: legacy_ad_unpatched_dc | default(false) | bool
+
+- name: Prepare the intentionally unprotected AD CS Web Enrollment relay target
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-LabCaRelay.ps1') }}"
+  when: legacy_adcs_relay | default(false) | bool

@@ -85,7 +85,7 @@ class ElasticAgentConfigurationTest(unittest.TestCase):
             with patch('builtins.input', side_effect=['', '', '']), patch('getpass.getpass', return_value=''):
                 configure(directory, force=True)
             values = json.loads((Path(directory) / 'elastic_agent_options.yml').read_text())['all']['children']['elastic_agent_targets']['vars']
-            self.assertEqual(values['elastic_agent_version'], '8.19.23')
+            self.assertEqual(values['elastic_agent_version'], '9.5.6')
             self.assertEqual(values['elastic_agent_enrollment_token'], 'TEST==')
             self.assertEqual(values['elastic_agent_ca_pem'], self.crt.read_text())
 
@@ -124,7 +124,7 @@ class ElasticAgentConfigurationTest(unittest.TestCase):
         for rc, expected in ((0, True), (1, False)):
             variables = {'elastic_agent_health': {'rc': rc}}
             conditional = Conditional(loader=loader)
-            conditional.when = health['until']
+            conditional.when = [health['until']] if isinstance(health['until'], str) else health['until']
             with self.subTest(rc=rc):
                 self.assertEqual(conditional.evaluate_conditional(Templar(loader=loader, variables=variables), variables), expected)
 

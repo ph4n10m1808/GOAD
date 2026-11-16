@@ -1,10 +1,25 @@
-
-- name: "Configure ATTRIBUTESUBJECTALTNAME2 on CA - ESC6"
-  win_shell: |
-    certutil -setreg policy\Editflags +EDITF_ATTRIBUTESUBJECTALTNAME2
+# Intentionally vulnerable GOAD lab configuration; preserve unrelated CA flags.
+- name: Configure and verify EDITF_ATTRIBUTESUBJECTALTNAME2 for adcs_esc6
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $configuration = 'HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration'
+      $caName = (Get-ItemProperty $configuration).Active
+      if ([string]::IsNullOrWhiteSpace($caName)) { throw 'No active local CA' }
+      $path = "$configuration\$caName\PolicyModules\CertificateAuthority_MicrosoftDefault.Policy"
+      $before = [int](Get-ItemProperty $path).EditFlags
+      $Ansible.Changed = ($before -band 0x40000) -eq 0
+      if ($Ansible.Changed) {
+          & certutil.exe -setreg 'policy\EditFlags' '+EDITF_ATTRIBUTESUBJECTALTNAME2' | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'CA flag update failed: adcs_esc6' }
+      }
+      $after = [int](Get-ItemProperty $path).EditFlags
+      if (($after -band 0x40000) -eq 0) { throw 'CA flag readback failed: adcs_esc6' }
+      [pscustomobject]@{CA=$caName; Before=$before; After=$after}
+    error_action: stop
   vars:
     ansible_become: yes
     ansible_become_method: runas
     ansible_become_user: "{{domain_username}}"
     ansible_become_password: "{{domain_password}}"
-  notify: restart-adcs   
+  notify: restart-adcs

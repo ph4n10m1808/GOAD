@@ -1,15 +1,25 @@
-- name: Retrieve LAPS Password on server
-  win_shell: |
-    $server=Get-AdComputer -Identity "{{hostname}}"
-    $obj = Get-ADObject -Identity $server.DistinguishedName -Properties ms-Mcs-AdmPwd
-    Write-Output "{{hostname}}" $obj."ms-Mcs-AdmPwd"
-  register: powershell_password
-  vars:
-    hostname: "{{item.value.hostname}}"
-  when: item.value.use_laps is defined and item.value.use_laps == true and item.value.domain == domain
-  with_dict: "{{hosts_dict}}"
-
-- name: Show new laps password
-  debug: msg="{{item.stdout_lines}}"
-  when: item.stdout_lines is defined
-  with_items: "{{powershell_password.results}}"
+- name: Verify future LAPS expiration metadata without reading password values
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param([string]$Computer, [string]$OrgUnit)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $server = Get-ADComputer -Identity $Computer -Properties ms-Mcs-AdmPwdExpirationTime
+      if (-not $server.DistinguishedName.EndsWith(',' + $OrgUnit, [StringComparison]::OrdinalIgnoreCase)) {
+          throw 'Managed computer is outside the selected LAPS OU'
+      }
+      $expiration = [Int64]$server.'ms-Mcs-AdmPwdExpirationTime'
+      if ($expiration -le [DateTime]::UtcNow.ToFileTimeUtc()) {
+          throw 'LAPS has not published a future expiration timestamp'
+      }
+      [pscustomobject]@{computer=$Computer;expiration_published=$true;expires_utc=[DateTime]::FromFileTimeUtc($expiration).ToString('o')}
+    parameters:
+      Computer: "{{ hosts_dict[item].hostname }}"
+      OrgUnit: "{{ laps_path }}"
+  when: hosts_dict[item].use_laps | default(false) | bool and hosts_dict[item].domain == domain
+  loop: "{{ hosts_dict.keys() | list }}"
+  register: laps_verification
+  until: laps_verification is success
+  retries: 12
+  delay: 10

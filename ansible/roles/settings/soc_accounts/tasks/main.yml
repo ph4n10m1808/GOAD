@@ -1,0 +1,43 @@
+---
+- name: Resolve the selected native GOAD instance before using private state
+  ansible.builtin.include_role:
+    name: settings/instance_context
+
+- name: Create a private controller credential directory for this lab instance
+  ansible.builtin.file:
+    path: "{{ goad_instance_dir }}/.soc-credentials"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: false
+
+- name: Retain private generated passwords without rotating existing values
+  ansible.builtin.set_fact:
+    soc_siem_initial_password: "{{ lookup('ansible.builtin.password', goad_instance_dir ~ '/.soc-credentials/soc_siem.password length=64 chars=ascii_letters,digits,punctuation') }}"
+    soc_soar_initial_password: "{{ lookup('ansible.builtin.password', goad_instance_dir ~ '/.soc-credentials/soc_soar.password length=64 chars=ascii_letters,digits,punctuation') }}"
+  no_log: true
+
+- name: Create or verify the two unprivileged SOC Active Directory identities
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', playbook_dir ~ '/../extensions/elastic_agent/ansible/roles/elastic_agent_windows/files/Initialize-SocAD-ServiceAccounts.ps1') }}"
+    sensitive_parameters:
+      - name: SiemPassword
+        value: "{{ soc_siem_initial_password }}"
+      - name: SoarPassword
+        value: "{{ soc_soar_initial_password }}"
+  vars:
+    ansible_become: true
+    ansible_become_method: runas
+    ansible_become_user: "{{ lab.hosts[dict_key].domain }}\\{{ admin_user }}"
+    ansible_become_password: "{{ lab.domains[lab.hosts[dict_key].domain].domain_password }}"
+  register: soc_ad_account_readback
+  no_log: true
+
+- name: Save only nonsecret account identity readback on the controller
+  ansible.builtin.copy:
+    content: "{{ soc_ad_account_readback.output | last }}"
+    dest: "{{ goad_instance_dir }}/.soc-credentials/account-identities.json"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  no_log: true

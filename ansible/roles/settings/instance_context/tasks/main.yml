@@ -1,0 +1,66 @@
+---
+# A host's inventory_dir belongs to the first inventory defining it, which may
+# be shared ad/<lab>/data. Resolve the selected native workspace independently.
+- name: Select the native instance inventory from the controller input sources
+  ansible.builtin.set_fact:
+    goad_instance_inventory_sources: "{{ ansible_inventory_sources | select('match', '^/.*/workspace/[^/]+/inventory$') | unique | list }}"
+
+- name: Require exactly one selected native GOAD instance
+  ansible.builtin.assert:
+    that:
+      - goad_instance_inventory_sources | length == 1
+    fail_msg: Select exactly one native workspace instance inventory; shared lab inventories cannot locate private state
+
+- name: Retain the actual selected instance directory
+  ansible.builtin.set_fact:
+    goad_instance_dir: "{{ goad_instance_inventory_sources[0] | dirname }}"
+
+- name: Inspect the native instance metadata without following a symlink
+  ansible.builtin.stat:
+    path: "{{ goad_instance_dir }}/instance.json"
+    follow: false
+    get_checksum: false
+  delegate_to: localhost
+  become: false
+  register: goad_instance_metadata_file
+
+- name: Require regular native instance metadata
+  ansible.builtin.assert:
+    that:
+      - goad_instance_metadata_file.stat.isreg | default(false)
+      - not (goad_instance_metadata_file.stat.islnk | default(false))
+    fail_msg: Selected workspace has no regular instance.json; refusing shared or guessed state paths
+
+- name: Read nonsecret native instance identity
+  ansible.builtin.set_fact:
+    goad_instance_metadata: "{{ lookup('ansible.builtin.file', goad_instance_dir ~ '/instance.json') | from_json }}"
+
+- name: Verify the selected instance identity and provider
+  ansible.builtin.assert:
+    that:
+      - goad_instance_metadata.id == (goad_instance_dir | basename)
+      - goad_instance_metadata.lab == domain_name
+      - goad_instance_metadata.provider is string
+    fail_msg: Native instance identity differs from the selected lab; no credentials or media are changed
+
+- name: Retain the verified provider identity
+  ansible.builtin.set_fact:
+    goad_instance_provider: "{{ goad_instance_metadata.provider }}"
+
+- name: Inspect the selected libvirt provider definition
+  ansible.builtin.stat:
+    path: "{{ goad_instance_dir }}/provider/Vagrantfile"
+    follow: false
+    get_checksum: false
+  delegate_to: localhost
+  become: false
+  register: goad_instance_vagrantfile
+  when: goad_instance_provider == 'libvirt'
+
+- name: Require the selected native libvirt definition
+  ansible.builtin.assert:
+    that:
+      - goad_instance_vagrantfile.stat.isreg | default(false)
+      - not (goad_instance_vagrantfile.stat.islnk | default(false))
+    fail_msg: Selected libvirt instance has no regular provider/Vagrantfile
+  when: goad_instance_provider == 'libvirt'

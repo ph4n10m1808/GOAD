@@ -39,14 +39,25 @@
 - name: Download the pinned SwiftOnSecurity Sysmon configuration
   ansible.windows.win_get_url:
     url: "{{ sysmon_config_url }}"
-    dest: "{{ sysmon_config_path }}"
+    dest: "{{ sysmon_upstream_config_path }}"
     checksum: "{{ sysmon_config_checksum }}"
     checksum_algorithm: sha256
     force: false
-  register: sysmon_config
-  until: sysmon_config is succeeded
+  register: sysmon_upstream_config
+  until: sysmon_upstream_config is succeeded
   retries: 3
   delay: 5
+
+- name: Prepare the managed Sysmon network connection policy
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Prepare-SysmonConfig.ps1') }}"
+    parameters:
+      SourcePath: "{{ sysmon_upstream_config_path }}"
+      DestinationPath: "{{ sysmon_config_path }}"
+      ExpectedSha256: "{{ sysmon_config_checksum }}"
+      NetworkConnectAll: "{{ sysmon_network_connect_all | bool }}"
+    error_action: stop
+  register: sysmon_effective_config
 
 - name: Install Sysmon with the SwiftOnSecurity configuration
   ansible.windows.win_command: >-
@@ -62,7 +73,7 @@
     chdir: "{{ sysmon_install_location }}"
   when:
     - sysmon_service.exists
-    - sysmon_config.changed
+    - sysmon_effective_config.changed
 
 - name: Ensure the Sysmon service is enabled and running
   ansible.windows.win_service:

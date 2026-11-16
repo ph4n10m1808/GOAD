@@ -19,7 +19,7 @@
                 ]
             },
             "scripts" : [],
-            "vulns" : ["disable_firewall", "directory", "files", "adcs_templates"],
+            "vulns" : ["disable_firewall", "directory", "files", "adcs_templates", "adcs_esc6", "adcs_esc7", "adcs_esc10_case1", "adcs_esc10_case2", "adcs_esc11", "adcs_esc13", "adcs_esc15"],
             "vulns_vars" : {
                 "directory": {
                     "setup": "c:\\setup"
@@ -31,9 +31,46 @@
                     }
                 },
                 "adcs_templates": {
+                    "ESC2": {
+                        "template_name": "ESC2",
+                        "template_file": "C:\\setup\\ESC2.json"
+                    },
+                    "ESC3-CRA": {
+                        "template_name": "ESC3-CRA",
+                        "template_file": "C:\\setup\\ESC3-CRA.json"
+                    },
+                    "ESC3": {
+                        "template_name": "ESC3",
+                        "template_file": "C:\\setup\\ESC3.json"
+                    },
+                    "ESC4": {
+                        "template_name": "ESC4",
+                        "template_file": "C:\\setup\\ESC4.json",
+                        "control_principal": "SEVENKINGDOMS\\petyer.baelish"
+                    },
+                    "ESC9": {
+                        "template_name": "ESC9",
+                        "template_file": "C:\\setup\\ESC9.json"
+                    },
                     "ESC1": {
                         "template_name" : "ESC1",
                         "template_file" : "C:\\setup\\ESC1.json"
+                    },
+                    "ESC13": {
+                        "template_name" : "ESC13",
+                        "template_file" : "C:\\setup\\ESC13.json"
+                    }
+                },
+                "adcs_esc7": {
+                    "renly": {
+                        "ca_manager": "SEVENKINGDOMS\\renly.baratheon",
+                        "ca_server": "kingslanding.sevenkingdoms.local"
+                    }
+                },
+                "adcs_esc13": {
+                    "esc13": {
+                        "adcs_esc13_group": "ESC13-Operators",
+                        "adcs_esc13_template": "ESC13"
                     }
                 }
             },
@@ -67,7 +104,7 @@
                 "gpo_abuse.ps1",
                 "rdp_scheduler.ps1"
             ],
-            "vulns" : ["disable_firewall", "directory", "credentials", "autologon", "files", "ntlmdowngrade", "enable_llmnr", "enable_nbt-ns", "shares"],
+            "vulns" : ["disable_firewall", "directory", "credentials", "autologon", "files", "ntlmdowngrade", "enable_llmnr", "enable_nbt-ns", "shares", "adcs_esc10_case1", "adcs_esc10_case2"],
             "vulns_vars" : {
                 "directory": {
                     "setup": "c:\\setup"
@@ -108,10 +145,11 @@
             "local_admin_password": "NgtI75cKV+Pu",
             "domain" : "north.sevenkingdoms.local",
             "path" : "DC=north,DC=sevenkingdoms,DC=local",
-            "use_laps": false,
+            "use_laps": true,
             "local_groups" : {
                 "Administrators" : [
-                    "north\\jeor.mormont"
+                    "north\\jeor.mormont",
+                    "SEVENKINGDOMS\\ESC13-Operators"
                 ],
                 "Remote Desktop Users" : [
                     "north\\Night Watch",
@@ -120,7 +158,7 @@
                 ]
             },
             "scripts" : [],
-            "vulns" : ["directory", "disable_firewall", "openshares", "files", "permissions"],
+            "vulns" : ["directory", "disable_firewall", "openshares", "files", "permissions", "adcs_esc10_case2"],
             "vulns_vars" : {
                 "directory": {
                     "shares": "C:\\shares",
@@ -176,6 +214,18 @@
             "netbios_name": "NORTH",
             "trust" : "",
             "laps_path": "OU=Laps,DC=north,DC=sevenkingdoms,DC=local",
+            "laps_schema_host": "dc01",
+            "gmsa_kds_host": "dc01",
+            "gmsa": {
+                "gmsa_account": {
+                    "gMSA_Name": "gmsaDragon",
+                    "gMSA_FQDN": "gmsaDragon.north.sevenkingdoms.local",
+                    "gMSA_SPNs": ["HTTP/gmsa-castelblack", "HTTP/gmsa-castelblack.north.sevenkingdoms.local"],
+                    "gMSA_HostNames": ["castelblack"]
+                }
+            },
+            "laps_readers": ["NORTH\\samwell.tarly"],
+            "laps_audit": true,
             "organisation_units" : {
             },
             "groups" : {
@@ -202,6 +252,12 @@
             },
             "multi_domain_groups_member" : {},
             "acls" : {
+                "GenericAll_gmsaDragon_hodor": {
+                    "for": "gmsaDragon$",
+                    "to": "hodor",
+                    "right": "GenericAll",
+                    "inheritance": "None"
+                },
                 "anonymous_rpc" : {"for": "NT AUTHORITY\\ANONYMOUS LOGON", "to": "DC=North,DC=sevenkingdoms,DC=local", "right": "ReadProperty", "inheritance": "All"},
                 "anonymous_rpc2" : {"for": "NT AUTHORITY\\ANONYMOUS LOGON", "to": "DC=North,DC=sevenkingdoms,DC=local", "right": "GenericExecute", "inheritance": "All"}
             },
@@ -323,6 +379,7 @@
             "dc": "dc01",
             "domain_password" : "8dCT-DJjgScp",
             "netbios_name": "SEVENKINGDOMS",
+            "ca_server": "kingslanding",
             "trust" : "",
             "laps_path": "OU=Laps,DC=sevenkingdoms,DC=local",
             "organisation_units" : {
@@ -336,7 +393,11 @@
                 "Dorne"       : { "path" : "DC=sevenkingdoms,DC=local"}
             },
             "groups" : {
-                "universal" : {},
+                "universal" : {
+                    "ESC13-Operators": {
+                        "path": "OU=Crownlands,DC=sevenkingdoms,DC=local"
+                    }
+                },
                 "global" : {
                     "Lannister" : {
                         "managed_by" : "tywin.lannister",

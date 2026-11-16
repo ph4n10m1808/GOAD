@@ -4,7 +4,7 @@
     arguments: "ADDLOCAL=CSE"
     path: https://download.microsoft.com/download/C/7/A/C7AAD914-A8A6-4904-88A1-29E657445D03/LAPS.x64.msi
     state: present
-    creates_path: "%ProgramFiles%\\LAPS"
+    creates_path: "%ProgramFiles%\\LAPS\\CSE\\AdmPwd.dll"
   register: pri_laps_install
   until: pri_laps_install is success
   retries: 3  # Try 3 times just in case it failed to download the URL
@@ -15,4 +15,28 @@
   when: pri_laps_install.reboot_required
 
 - name: Refresh GPO on the Clients
-  ansible.windows.win_command: gpupdate /force
+  ansible.windows.win_command: gpupdate /target:computer /force /wait:600
+
+- name: Verify the native LAPS client and preserve provisioning account access
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      if ((Get-CimInstance Win32_ComputerSystem).DomainRole -ge 4) {
+          throw 'Legacy LAPS CSE must not manage a domain controller'
+      }
+      $policy = Get-ItemProperty 'HKLM:\Software\Policies\Microsoft Services\AdmPwd'
+      if ($policy.AdmPwdEnabled -ne 1) { throw 'Legacy LAPS computer policy is not enabled' }
+      $extension = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\GPExtensions\{D76B9641-3288-4f75-942D-087DE603E3EA}'
+      if (-not (Test-Path ([Environment]::ExpandEnvironmentVariables($extension.DllName)))) {
+          throw 'Legacy LAPS client extension is not registered correctly'
+      }
+      $administrator = Get-LocalUser | Where-Object { $_.SID.Value -match '-500$' }
+      $provisioner = Get-LocalUser -Name vagrant -ErrorAction Stop
+      if (-not $administrator -or $administrator.SID -eq $provisioner.SID -or -not $provisioner.Enabled) {
+          throw 'LAPS account selection would invalidate the provisioning account'
+      }
+      if (-not [string]::IsNullOrWhiteSpace($policy.AdminAccountName)) {
+          throw 'Unexpected custom legacy LAPS account policy; review the selected account'
+      }
+      [pscustomobject]@{client_registered=$true;policy_enabled=$true;provisioning_account_preserved=$true}

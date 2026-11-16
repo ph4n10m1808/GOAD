@@ -1,6 +1,22 @@
-- name: Disable IF_ENFORCEENCRYPTICERTREQUEST flag (ESC11)
-  win_shell: |
-     certutil -setreg CA\InterfaceFlags -IF_ENFORCEENCRYPTICERTREQUEST
+# Intentionally vulnerable GOAD lab configuration; preserve unrelated CA flags.
+- name: Configure and verify IF_ENFORCEENCRYPTICERTREQUEST for adcs_esc11
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $configuration = 'HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration'
+      $caName = (Get-ItemProperty $configuration).Active
+      if ([string]::IsNullOrWhiteSpace($caName)) { throw 'No active local CA' }
+      $path = "$configuration\$caName"
+      $before = [int](Get-ItemProperty $path).InterfaceFlags
+      $Ansible.Changed = ($before -band 0x200) -ne 0
+      if ($Ansible.Changed) {
+          & certutil.exe -setreg 'CA\InterfaceFlags' '-IF_ENFORCEENCRYPTICERTREQUEST' | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'CA flag update failed: adcs_esc11' }
+      }
+      $after = [int](Get-ItemProperty $path).InterfaceFlags
+      if (($after -band 0x200) -ne 0) { throw 'CA flag readback failed: adcs_esc11' }
+      [pscustomobject]@{CA=$caName; Before=$before; After=$after}
+    error_action: stop
   vars:
     ansible_become: yes
     ansible_become_method: runas

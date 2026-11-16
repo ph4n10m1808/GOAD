@@ -3,12 +3,14 @@
 domain_name=GOAD-Light
 ; administrator user
 admin_user=administrator
+; Root PDC uses external NTP; members retain the native domain hierarchy.
+goad_root_ntp_peers=0.pool.ntp.org,1.pool.ntp.org,2.pool.ntp.org
 
 force_dns_server=yes
 dns_server=1.1.1.1
 
 ;dns server forwarder
-dns_server_forwarder=1.1.1.1
+dns_server_forwarder=8.8.8.8,1.1.1.1
 
 ; winrm connection (windows)
 ansible_user=vagrant
@@ -101,7 +103,9 @@ srv02
 [elk_log]
 
 [laps_dc]
+dc02
 [laps_server]
+srv02
 [laps_workstation]
 
 
@@ -116,6 +120,10 @@ srv02
 dc01
 dc02
 
+; Disable only after the final Windows provisioning play, preserving IIS setup.
+[no_update_after_install]
+srv02
+
 ; allow defender
 ; usage : security.yml
 [defender_on]
@@ -126,3 +134,14 @@ dc02
 ; usage : security.yml
 [defender_off]
 srv02
+
+; Native audit settings only; no Agent/Sysmon installation.
+[lab_auditing]
+dc01
+dc02
+srv02
+
+; Deliberately weak lab preconditions; no exploit is run by provisioning.
+[legacy_ad_lab]
+dc01 legacy_adcs_relay=true
+dc02 legacy_ad_unpatched_dc=true

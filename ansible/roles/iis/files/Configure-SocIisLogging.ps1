@@ -1,3 +1,5 @@
+param([bool]$VerifyLocalHttp = $true, [bool]$CreateBackup = $true)
+
 $ErrorActionPreference = 'Stop'
 Import-Module WebAdministration
 # IIS 1.24.9's native access pipeline supports this W3C field layout.
@@ -11,6 +13,7 @@ foreach ($site in Get-Website) {
     $targets += "system.applicationHost/sites/site[@name='$($site.Name)']/logFile"
 }
 $plans = @()
+$backupCreated = $false
 foreach ($filter in $targets) {
     $property = Get-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' `
         -Filter $filter -Name logExtFileFlags
@@ -24,8 +27,9 @@ foreach ($filter in $targets) {
 }
 if ($plans.Count) {
     $backup = 'SOC-Before-HTTP-Version-Logging'
-    if (-not (Test-Path "$env:windir\System32\inetsrv\backup\$backup")) {
+    if ($CreateBackup -and -not (Test-Path "$env:windir\System32\inetsrv\backup\$backup")) {
         Backup-WebConfiguration -Name $backup | Out-Null
+        $backupCreated = $true
     }
     foreach ($plan in $plans) {
         Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' `
@@ -42,7 +46,7 @@ foreach ($filter in $targets) {
     }
 }
 $receipt = "$env:ProgramData\Elastic\soc-iis-logging-accepted.json"
-if (-not (Test-Path $receipt)) {
+if ($VerifyLocalHttp -and -not (Test-Path $receipt)) {
     # Real, bounded local requests seed both enabled log sources on a fresh lab.
     # This is a collection readiness check, not a simulated attack or fake event.
     $normal = Invoke-WebRequest -UseBasicParsing `
@@ -69,4 +73,4 @@ if (-not (Test-Path $receipt)) {
         ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding UTF8
 }
 @{changed=($plans.Count -gt 0); targets=$targets.Count; fields=$required;
-  backup='SOC-Before-HTTP-Version-Logging'} | ConvertTo-Json -Compress
+  backup_created=$backupCreated; backup=if ($CreateBackup) {'SOC-Before-HTTP-Version-Logging'} else {$null}} | ConvertTo-Json -Compress

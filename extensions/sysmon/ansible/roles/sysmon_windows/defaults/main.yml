@@ -9,7 +9,12 @@ sysmon_config_revision: "1836897f12fbd6a0a473665ef6abc34a6b497e31"
 sysmon_config_url: >-
   https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/{{ sysmon_config_revision }}/sysmonconfig-export.xml
 sysmon_config_path: "{{ sysmon_install_location }}\\sysmonconfig-export.xml"
+sysmon_upstream_config_path: "{{ sysmon_install_location }}\\sysmonconfig-upstream.xml"
 sysmon_config_checksum: "055febc600e6d7448cdf3812307275912927a62b1f94d0d933b64b294bc87162"
+
+# GOAD lab: retain other pinned filters and collect all Event ID 3 connections.
+# Set false to use the original upstream selective NetworkConnect filters.
+sysmon_network_connect_all: true
 
 # Preserve collected event logs by default when uninstalling the extension.
 sysmon_remove_install_directory: true

@@ -9,10 +9,12 @@
 
 - name: GMSA inside AD
   hosts: dc
+  any_errors_fatal: true
   roles:
   - { role: 'gmsa', tags: 'gmsa'}
   vars:
     ad_gmsa: "{{lab.domains[lab.hosts[dict_key].domain].gmsa | default({})}}"
+    gmsa_kds_host: "{{ lab.domains[lab.hosts[dict_key].domain].gmsa_kds_host | default(inventory_hostname) }}"
     domain: "{{lab.hosts[dict_key].domain}}"
     domain_username: "{{domain}}\\{{admin_user}}"
     domain_password: "{{lab.domains[domain].domain_password}}"

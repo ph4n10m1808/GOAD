@@ -41,6 +41,14 @@
     post_reboot_delay: 100
   when: pri_laps_install.reboot_required
 
+- name: Verify the native legacy LAPS management module
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      Import-Module AdmPwd.PS -ErrorAction Stop
+      Get-Command Set-AdmPwdReadPasswordPermission, Set-AdmPwdAuditing -ErrorAction Stop | Out-Null
+      $Ansible.Changed = $false
+
 - name: Configure Password Properties
   win_ad_object:
     name: ms-Mcs-AdmPwd
@@ -67,6 +75,7 @@
   become: yes
   become_method: runas
   become_user: SYSTEM
+  delegate_to: "{{ laps_schema_host | default(inventory_hostname) }}"
 
 - name: Configure Password Expiry Time
   win_ad_object:
@@ -93,6 +102,7 @@
   become: yes
   become_method: runas
   become_user: SYSTEM
+  delegate_to: "{{ laps_schema_host | default(inventory_hostname) }}"
 
 - name: Add LAPS attributes to the Computer Attribute
   win_ad_object:
@@ -109,6 +119,64 @@
   become: yes
   become_method: runas
   become_user: SYSTEM
+  delegate_to: "{{ laps_schema_host | default(inventory_hostname) }}"
+
+- name: Wait for LAPS schema visibility on the domain controller before applying OU permissions
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $Ansible.Result = @{retryable=$false}
+      Import-Module ActiveDirectory -ErrorAction Stop
+      $server = $env:COMPUTERNAME
+      $root = Get-ADRootDSE -Server $server -ErrorAction Stop
+      if ([string]::IsNullOrWhiteSpace($root.schemaNamingContext) -or
+          [string]::IsNullOrWhiteSpace($root.dnsHostName)) {
+          throw 'Local DC returned incomplete schema naming context or hostname'
+      }
+      foreach ($name in @('ms-Mcs-AdmPwd', 'ms-Mcs-AdmPwdExpirationTime')) {
+          $attributes = @(foreach ($entry in (Get-ADObject -Server $server -SearchBase $root.schemaNamingContext -LDAPFilter "(lDAPDisplayName=$name)" -Properties schemaIDGUID -ErrorAction Stop)) {
+              if ($null -ne $entry) { $entry }
+          })
+          if ($attributes.Count -eq 0) {
+              $Ansible.Result = @{retryable=$true;controller=$server;missing_attribute=$name}
+              throw "LAPS schema attribute has not replicated locally: $name"
+          }
+          if ($attributes.Count -ne 1) { throw "LAPS schema attribute is ambiguous: $name" }
+          try { $id = [guid]::new([byte[]]$attributes[0].schemaIDGUID) }
+          catch { throw "LAPS schema attribute has invalid schemaIDGUID: $name" }
+          if ($id -eq [guid]::Empty) { throw "LAPS schema attribute has empty schemaIDGUID: $name" }
+      }
+      $computers = @(foreach ($entry in (Get-ADObject -Server $server -Identity "CN=Computer,$($root.schemaNamingContext)" -Properties mayContain -ErrorAction Stop)) {
+          if ($null -ne $entry) { $entry }
+      })
+      if ($computers.Count -ne 1) { throw 'Local Computer schema class is missing or ambiguous' }
+      $optional = @(foreach ($name in $computers[0].mayContain) { [string]$name })
+      if ('ms-Mcs-AdmPwd' -notin $optional -or 'ms-Mcs-AdmPwdExpirationTime' -notin $optional) {
+          $Ansible.Result = @{retryable=$true;controller=$server;missing_computer_attributes=$true}
+          throw 'The local Computer schema class has not received both LAPS attributes'
+      }
+      # Cache refresh requires Update-Schema-Cache rights; a permission or
+      # transport failure must not be disguised as another replication wait.
+      $directory = New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList @("LDAP://$($root.dnsHostName)/RootDSE")
+      try {
+          $directory.Put('schemaUpdateNow', 1)
+          $directory.SetInfo()
+      } finally {
+          $directory.Dispose()
+      }
+      [pscustomobject]@{schema_visible=$true;controller=$root.dnsHostName;schema_cache_refreshed=$true}
+    error_action: stop
+  vars:
+    ansible_become: true
+    ansible_become_method: runas
+    # Use the local DC identity for schema metadata/cache operations without
+    # granting forest-schema rights to the child-domain provisioning account.
+    ansible_become_user: SYSTEM
+  register: laps_schema_visibility
+  until: laps_schema_visibility is success or not ((laps_schema_visibility.result | default({})).retryable | default(false) | bool)
+  retries: 60
+  delay: 10
 
 - name: "Apply DACL to OU Containers"
   win_ad_dacl:
@@ -182,8 +250,7 @@
     gpo: '{{ opt_laps_gpo_name }}'
     name: AdminAccountName
     path: 'HKLM\Software\Policies\Microsoft Services\AdmPwd'
-    state: present
-    type: string
+    state: absent
 
 - name: Enable the GPO
   win_gpo_reg:
