@@ -1,9 +1,9 @@
 # Proxmox setup
 
 <div align="center">
-  <img alt="terraform" width="150" height="150" src="./img/icon_terraform.png">
-  <img alt="terraform" width="150" height="150" src="./img/icon_proxmox.png">
-  <img alt="icon_ansible" width="150"  height="150" src="./img/icon_ansible.png">
+  <img alt="terraform" width="150" height="150" src="../img/icon_terraform.png">
+  <img alt="terraform" width="150" height="150" src="../img/icon_proxmox.png">
+  <img alt="icon_ansible" width="150"  height="150" src="../img/icon_ansible.png">
 </div>
 
 - A complete guide to proxmox installation is available here : [https://mayfly277.github.io/categories/proxmox/](https://mayfly277.github.io/categories/proxmox/)

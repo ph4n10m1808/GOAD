@@ -1,5 +1,16 @@
 # Road Map
 
+## SOC source delivery — 17 November 2026
+
+Grouped the reviewed local changes into native AD/logging prerequisites, libvirt/Exchange lifecycle, maintained documentation and offline test compatibility. The lab retains its selected vulnerable conditions; publishing source does not authorize another provisioning, restart or attack. gMSA/LAPS use explicit forest/domain readback, SOC accounts retain private ownership receipts, and Agent/Sysmon stay opt-in. Libvirt keeps external SOC-network ownership and exact VM/media identity; Exchange uses a verified controller ISO/read-only CD-ROM, guarded forest/SPN recovery and native file/logging setup.
+
+Validation:185 offline tests passed; all16 base playbooks and three extension install playbooks passed native syntax checks with the shared/extension role paths. Python/YAML and all seven AD CS JSON templates parsed, preserving four native UTF-16 templates. Source review and earlier scoped guest evidence remain separate: no VM, Agent, Exchange Setup or lab data was changed for this delivery.
+
+
+## Local documentation review — 17 November 2026
+
+Reviewed all 80 non-vendor Markdown files in the lab tree, including inherited provider/developer pages and olddocs as historical material; two ADCSTemplate vendor READMEs and one certificate/flag payload were excluded. Corrected current GOAD/GOAD-Light identities, extension/CLI/media/naming rules and source-versus-runtime wording. Twenty old image links were rebased to their existing `docs/img` assets; no old asset, scenario or lab data was deleted. The inherited roadmap below is publisher history, not the SOC execution checklist. Current source procedures are [arguments](usage/goad_args.md), [console](usage/goad_console.md) and [libvirt](providers/libvirt.md); actual data acceptance belongs to the SOC backlog. External link availability, non-libvirt deployment and attack results were not tested by this documentation review.
+
 ## v1
 - [X] SMB share anonymous
 - [X] SMB not signed

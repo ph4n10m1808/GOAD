@@ -13,16 +13,16 @@ This lab is actually composed of five virtual machines:
 - **braavos**      : SRV03 running on Windows Server 2016 (with windefender enabled by default)
 
 ## domain : north.sevenkingdoms.local
-- **winterfell**     : DC01
+- **winterfell**     : DC02
 - **castelblack**    : SRV02 : MSSQL / IIS
 
 ## domain : sevenkingdoms.local
-- **kingslanding**   : DC02
+- **kingslanding**   : DC01
 - **castelrock**     : SRV01 (disabled due to resources reasons)
 
 ## domain : essos.local
-- **braavos**        : DC03
-- **meeren**         : SRV03 : MSSQL / ADCS
+- **meereen**        : DC03
+- **braavos**        : SRV03 : MSSQL / ADCS
 
 The lab setup is automated using vagrant and ansible automation tools.
 You can change the vm version in the Vagrantfile according to Stefan Scherer vagrant repository : https://app.vagrantup.com/StefanScherer
@@ -97,7 +97,7 @@ ESSOS.LOCAL
     - Admins : eddard.stark (U), catelyn.stark (U), robb.stark (U)
     - RDP: Stark(G)
 
-  - SRV02 : castelblack.essos.local (Windows Server 2019) (IIS, MSSQL, SMB share)
+  - SRV02 : castelblack.north.sevenkingdoms.local (Windows Server 2019) (IIS, MSSQL, SMB share)
     - Admins: jeor.mormont (U)
     - RDP: Night Watch (G), Mormont (G), Stark (G)
     - IIS : allow asp upload, run as NT Authority/network
@@ -126,47 +126,19 @@ ESSOS.LOCAL
 
 ## Blueteam / ELK
 
-- **elk** a kibana is configured on http://192.168.56.50:5601 to follow the lab events
-- infos : log encyclopedia : https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/
-- the elk is not installed by default due to resources reasons. 
+The optional ELK extension creates a separate lab collector/server; it is not the main SOC deployment. Do not add it just to duplicate a Fleet-managed source. When selected, load the exact existing instance and use native extension commands:
 
-- prerequistes: 
-- you need `sshpass` for the elk installation
-```bash
-sudo apt install sshpass
-```
-- Chocolatey is needed to use elk. To install it run:
-```bash
-ansible-galaxy collection install chocolatey.chocolatey 
+```text
+load <instance_id>
+install_extension sysmon
+install_extension elk
 ```
 
-- To install and start the elk play the following commands :
-```bash
-./goad.sh -t install -l GOAD -p virtualbox -m local -r elk.yml -e elk
-#or
-./goad.sh -t install -l GOAD -p vmware -m local -r elk.yml -e elk
-```
-
- * -e : to add the elk in vagrantfile for the vagrant up
- * -r : to run only the elk.yml ansible script
-
-If you want to only launch the elk.yml file without providing (vm creation), because your elk vm is already up do :
-```bash
-./goad.sh -t install -l GOAD -p virtualbox -m local -a -r elk.yml -e elk
-#or
-./goad.sh -t install -l GOAD -p vmware -m local -a -r elk.yml -e elk
-```
-
-If you want to do that by hand:
-  1. run: `GOAD_VAGRANT_OPTIONS=elk vagrant up`
-
-  2. launch the elk provisionning with the command :
-  ```
-  cd ansible
-  ansible-playbook -i ../ad/GOAD/data/inventory -i ../ad/GOAD/providers/<your_provider>/inventory elk.yml
-  ```
+Use `provision_extension elk` only to retry the already selected extension. Its maintained configuration is in `extensions/elk/README.md`; Sysmon is separately owned. Current SIEM enrollment through the `elastic_agent` extension is documented in `extensions/elastic_agent/README.md`. No Agent/extension installation is implied by reading this page.
 
 ### V2 breaking changes
+
+Old date — these notes describe the original v1→v2 transition, not a current rebuild or deletion instruction.
 - If you previously install the v1 do not try to update as a lot of things have changed. Just drop your old lab and build the new one (you will not regret it)
 - Chocolatey is no more used and basic tools like git or notepad++ are no more installed by default (as chocolatey regularly crash the install due to hitting rate on multiples builds)
 - ELK is no more installed by default to save resources but you still can install it separately (see the blueteam/elk part)

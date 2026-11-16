@@ -2,7 +2,7 @@
 
 The architecture is the same than the Azure deployment.
 
-![Architecture](img/azure_architecture.png)
+![Architecture](../img/azure_architecture.png)
 
 > **Warning**
 > LLMNR, NBTNS and other poisoning network attacks will not work in AWS environment.
@@ -39,7 +39,7 @@ Other configurable variables are listed in the `variable.tf` file.
 ./goad.sh -t install -l GOAD -p aws
 ```
 
-![aws check](./img/aws_check.png)
+![aws check](../img/aws_check.png)
 
 ## Lab access
 

@@ -1,9 +1,9 @@
 # Virtualbox setup
 
 <div align="center">
-  <img alt="vagrant" width="150" height="150" src="./img/icon_vagrant.png">
-  <img alt="icon_virtualbox" width="150"  height="150" src="./img/icon_virtualbox.png">
-  <img alt="icon_ansible" width="150"  height="150" src="./img/icon_ansible.png">
+  <img alt="vagrant" width="150" height="150" src="../img/icon_vagrant.png">
+  <img alt="icon_virtualbox" width="150"  height="150" src="../img/icon_virtualbox.png">
+  <img alt="icon_ansible" width="150"  height="150" src="../img/icon_ansible.png">
 </div>
 
 ## Prerequisites
@@ -135,7 +135,7 @@ vagrant up
 
 - At the end of the vagrantup you should have the vms created and running, like this :
 
-![virtualbox](./img/vbox.png)
+![virtualbox](../img/vbox.png)
 
 - Adapter 1 is set up as NAT (used to internet access during the provisioning)
 - Adapter 2 is set up as host only adapter on the network 192.168.56.1/24

@@ -2,12 +2,12 @@
 
 
 <div align="center">
-  <img alt="terraform" width="150" height="150" src="./img/icon_terraform.png">
-  <img alt="icon_azure" width="150"  height="150" src="./img/icon_azure.png">
-  <img alt="icon_ansible" width="150"  height="150" src="./img/icon_ansible.png">
+  <img alt="terraform" width="150" height="150" src="../img/icon_terraform.png">
+  <img alt="icon_azure" width="150"  height="150" src="../img/icon_azure.png">
+  <img alt="icon_ansible" width="150"  height="150" src="../img/icon_ansible.png">
 </div>
 
-![Architecture](img/azure_architecture.png)
+![Architecture](../img/azure_architecture.png)
 
 > **Warning**
 > LLMNR, NBTNS and other poisoning network attacks will not work in azure environment.
@@ -35,7 +35,7 @@ az login
 ./goad.sh -t install -l GOAD -p azure
 ```
 
-![azure check](./img/azure_check.png)
+![azure check](../img/azure_check.png)
 
 ## Manual installation
 

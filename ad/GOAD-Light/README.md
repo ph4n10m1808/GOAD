@@ -6,21 +6,22 @@ This is a light version of goad without the essos domain. This lab was build for
 Missing scenarios:
 - cross forest exploitation (no more external forest)
 - mssql trusted link
-- some old computer vulnerabilities (zero logon, petitpotam unauthent,...)
-- ESC4, ESC2/3
+- Historical exploitability outside the selected Windows build and explicit lab settings; provisioning alone does not prove an exploit works.
+
+Local source adds Legacy LAPS, gMSA and selected ESC2/3/4/6/7/9/10/11/13/15 conditions while retaining the single DC01 CA. The libvirt DC02 uses the selected historical2019 image for Zerologon/EFSRPC/noPac prerequisites. These isolated lab conditions preserve intentional weaknesses; they are not production guidance or tested attack results. See the local libvirt provider guide for exact build and scope.
 
 ### Servers
-This lab is actually composed of three virtual machines:
+The base lab has three virtual machines; optional Exchange adds SRV01 (`the-eyrie`) as a fourth:
 - **kingslanding** : DC01  running on Windows Server 2019 (with windefender enabled by default)
 - **winterfell**   : DC02  running on Windows Server 2019 (with windefender enabled by default)
 - **castelblack**  : SRV02 running on Windows Server 2019 (with windefender **disabled** by default)
 
 #### domain : north.sevenkingdoms.local
-- **winterfell**     : DC01
+- **winterfell**     : DC02
 - **castelblack**    : SRV02 : MSSQL / IIS
 
 #### domain : sevenkingdoms.local
-- **kingslanding**   : DC02
+- **kingslanding**   : DC01
 
 
 The lab setup is automated using vagrant and ansible automation tools.
@@ -84,7 +85,7 @@ SEVENKINGDOMS.LOCAL
     - Admins : eddard.stark (U), catelyn.stark (U), robb.stark (U)
     - RDP: Stark(G)
 
-  - SRV02 : castelblack.essos.local (Windows Server 2019) (IIS, MSSQL, SMB share)
+  - SRV02 : castelblack.north.sevenkingdoms.local (Windows Server 2019) (IIS, MSSQL, SMB share)
     - Admins: jeor.mormont (U)
     - RDP: Night Watch (G), Mormont (G), Stark (G)
     - IIS : allow asp upload, run as NT Authority/network

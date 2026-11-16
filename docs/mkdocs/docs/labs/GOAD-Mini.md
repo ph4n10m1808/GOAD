@@ -1,6 +1,6 @@
 # GOAD-Mini
 
-This is a minimalist version of goad with only sevenkingdoms.lab domain. This lab was build for a minimalist base to do test and try extensions.
+This is a minimalist version of goad with only sevenkingdoms.local domain. This lab was build for a minimalist base to do test and try extensions.
 
 ![goad_mini.png](../img/goad_mini.png)
 

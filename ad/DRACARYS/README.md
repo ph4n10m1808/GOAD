@@ -31,7 +31,7 @@ or
 ./goad.sh
 > set_lab DRACARYS
 > set_provider <your_provider>
-> set_iprange 192.168.56  # select the one you want and you can skip this with ludus
+> set_ip_range 192.168.56  # select the one you want and you can skip this with ludus
 > install
 ```
 

@@ -40,7 +40,7 @@ This lab is actually composed of five virtual machines:
         - Admins : eddard.stark (U), catelyn.stark (U), robb.stark (U)
         - RDP: Stark(G)
 
-    - SRV02 : castelblack.essos.local (Windows Server 2019) (IIS, MSSQL, SMB share)
+    - SRV02 : castelblack.north.sevenkingdoms.local (Windows Server 2019) (IIS, MSSQL, SMB share)
         - Admins: jeor.mormont (U)
         - RDP: Night Watch (G), Mormont (G), Stark (G)
         - IIS : allow asp upload, run as NT Authority/network

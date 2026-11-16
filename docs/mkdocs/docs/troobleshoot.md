@@ -1,12 +1,6 @@
 # troubleshoot
 
-!!! tip
-    In most case if you get errors during install, don't think. 
-    Select the failed instance ̀`load <instance_id>` and just replay the install with `provision_lab` to relaunch all or `provision_lab_from <playbook>` if you know the last failed playbook 
-    (most of the errors which could came up are due to windows latency during installation, wait few minutes and replay the install)
-
-🚧 TODO refresh me with new goad version :)
-
+Old date — inherited version-specific examples below are retained for diagnosis, not a current host baseline. Start from the exact failed task, installed versions and current logs; use the scoped console command only after determining whether a prior write completed. Do not blindly replay provisioning, weaken TLS, enable global legacy crypto or downgrade host packages to follow an old workaround. Current libvirt storage/naming/media rules are in the [provider guide](providers/libvirt.md).
 
 ## vagrant up - WinRM - digest initialization failed : Initialization Error
 
