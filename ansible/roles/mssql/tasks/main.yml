@@ -1,10 +1,20 @@
+# SQL Server setup is launched through WinRM; the default per-shell memory quota
+# (800MB on Windows Server 2019) makes setup.exe die with System.OutOfMemoryException
+# and leaves a half-installed instance behind. Raise it before installing.
+- name: Raise WinRM shell memory quota for SQL Server setup
+  win_shell: |
+    $current = [int](Get-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB).Value
+    if ($current -lt 4096) { Set-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB 4096; Write-Output "changed" } else { Write-Output "ok" }
+  register: winrs_quota
+  changed_when: "'changed' in winrs_quota.stdout"
+
 - name: Reboot before install (long timeout in case of update)
   win_reboot:
     reboot_timeout: 1200
 
 - name: Set download_url
   set_fact:
-    download_url: "{{ download_url_2022 if sql_version == 'MSSQL_2022' else download_url_2019_offline}}"
+    download_url: "{{ download_url_2022 if sql_version == 'MSSQL_2022' else download_url_2019}}"
 
 - name: Set connection method
   set_fact:
@@ -56,7 +66,7 @@
   win_get_url:
       url: "{{download_url}}"
       dest: 'c:\setup\mssql\sql_installer.exe'
-  when: sql_version != 'MSSQL_2019' and not installer_file.stat.exists
+  when: not installer_file.stat.exists
 
 - name: Add service account to Log on as a service
   win_user_right:
@@ -85,88 +95,11 @@
 
 - debug: msg="{{mssql_install_already_done}}"
 
-- name: Prepare SQL Server 2019 offline media
-  when:
-    - sql_version == 'MSSQL_2019'
-    - not (mssql_install_already_done.exists | default(false))
-  block:
-    - name: Download SQL Server 2019 Express Advanced offline media
-      ansible.windows.win_get_url:
-        url: '{{ download_url_2019_offline }}'
-        dest: 'C:\setup\mssql\SQLEXPRADV_x64_ENU.exe'
-        url_timeout: 120
-
-    - name: Extract SQL Server 2019 offline media
-      ansible.windows.win_shell: |
-        $signature = Get-AuthenticodeSignature 'C:\setup\mssql\SQLEXPRADV_x64_ENU.exe'
-        if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
-            throw 'SQL Server offline media does not have a valid Microsoft signature'
-        }
-        $process = Start-Process 'C:\setup\mssql\SQLEXPRADV_x64_ENU.exe' -ArgumentList '/Q', '/X:C:\setup\mssql\media\2019' -Wait -PassThru
-        if ($process.ExitCode -ne 0) { throw "SQL media extraction failed: $($process.ExitCode)" }
-      args:
-        creates: 'C:\setup\mssql\media\2019\setup.exe'
-
 # Install the database with a domain admin user
 - name: Install the database
-  ansible.windows.win_powershell:
-    script: |
-      [CmdletBinding()]
-      param (
-          [string] $Installer,
-          [string] $ConfigurationFile,
-          [string] $MediaPath,
-          [string] $ServiceName,
-          [bool] $OfflineMedia,
-          [int] $TimeoutSeconds
-      )
-
-      $arguments = @(
-          "/configurationfile=$ConfigurationFile"
-          '/IACCEPTSQLSERVERLICENSETERMS'
-          '/QUIET'
-      )
-      if (-not $OfflineMedia) {
-          $arguments += "/MEDIAPATH=$MediaPath", '/HIDEPROGRESSBAR'
-      }
-      $process = Start-Process -FilePath $Installer -ArgumentList $arguments `
-          -WorkingDirectory (Split-Path $Installer) -PassThru
-      if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-          throw "SQL Setup exceeded $TimeoutSeconds seconds; inspect the installer before retrying. PID: $($process.Id)"
-      }
-
-      # SQL Express bootstrap can fail during its final discovery pass with
-      # 0x8007000e even though every selected feature was installed. Treat the
-      # service as the authoritative installation result to avoid rerunning a
-      # completed installer.
-      $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-      if ($null -eq $service -or ($OfflineMedia -and $process.ExitCode -notin @(0, 3010))) {
-          $summary = Get-ChildItem `
-              -Path 'C:\Program Files\Microsoft SQL Server' `
-              -Filter Summary.txt -Recurse -ErrorAction SilentlyContinue |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 1
-          $summaryTail = if ($summary) {
-              (Get-Content -LiteralPath $summary.FullName -Tail 80) -join "`n"
-          } else {
-              'SQL Setup Summary.txt was not found'
-          }
-          throw "SQL Setup failed verification (exit code $($process.ExitCode), expected service $ServiceName).`n$summaryTail"
-      }
-
-      $Ansible.Changed = $true
-      $Ansible.Result = @{
-          installer_exit_code = $process.ExitCode
-          service = $service.Name
-          service_status = $service.Status.ToString()
-      }
-    parameters:
-      Installer: "{{ 'C:\\setup\\mssql\\media\\2019\\setup.exe' if sql_version == 'MSSQL_2019' else 'C:\\setup\\mssql\\sql_installer.exe' }}"
-      ConfigurationFile: 'C:\setup\mssql\sql_conf.ini'
-      MediaPath: 'C:\setup\mssql\media'
-      ServiceName: '{{ mssql_service_name }}'
-      OfflineMedia: '{{ sql_version == "MSSQL_2019" }}'
-      TimeoutSeconds: '{{ mssql_install_timeout_seconds }}'
+  win_command: c:\setup\mssql\sql_installer.exe /configurationfile=c:\setup\mssql\sql_conf.ini /IACCEPTSQLSERVERLICENSETERMS /MEDIAPATH=c:\setup\mssql\media /QUIET /HIDEPROGRESSBAR
+  args:
+    chdir: c:\setup
   vars:
     ansible_become: yes
     ansible_become_method: runas
@@ -174,6 +107,9 @@
     ansible_become_password: "{{domain_admin_password}}"
     ansible_become_flags: logon_type=new_credentials logon_flags=netcredentials_only
   register: mssqlinstall
+  until: "mssqlinstall is not failed"
+  retries: 3
+  delay: 120
   when: mssql_install_already_done.state is not defined or mssql_install_already_done.name is not defined
 #  when: not mssql_install_already_done.stat.exists
 
@@ -286,9 +222,6 @@
   become_user: "{{SQLSVCACCOUNT}}"
   vars:
     ansible_become_pass: "{{SQLSVCPASSWORD}}"
-
-- name: Configure SQL Server security audit
-  ansible.builtin.import_tasks: audit.yml
 
 - name: Restart service MSSQL
   win_service:

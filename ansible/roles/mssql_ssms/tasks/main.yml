@@ -1,65 +1,28 @@
-- name: Ensure SSMS setup directory exists
-  ansible.windows.win_file:
-    path: 'C:\setup\mssql'
-    state: directory
-
-- name: check .NET Framework 4.8 release
-  win_reg_stat:
-    path: 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full'
-    name: Release
-  register: ssms_dotnet_framework_release
-
-- name: set .NET Framework 4.8 installation state
-  set_fact:
-    ssms_dotnet_framework_48_installed: "{{ (ssms_dotnet_framework_release.value | default(0) | int) >= 528040 }}"
-
-- name: check Microsoft .NET Framework 4.8 installer exists
+- name: check SQL Server Manager Studio installer exists
   win_stat:
-    path: 'c:\setup\mssql\NDP48-x86-x64-AllOS-ENU.exe'
-  register: ssms_dotnet_framework_installer_file
+    path: c:\setup\mssql\SSMS_installer.exe
+  register: ssms_installer_file
 
-- name: get Microsoft .NET Framework 4.8 installer
+- name: get the installer
   win_get_url:
-    url: 'https://download.microsoft.com/download/f/3/a/f3a6af84-da23-40a5-8d1c-49cc10c8e76f/NDP48-x86-x64-AllOS-ENU.exe'
-    dest: 'c:\setup\mssql\NDP48-x86-x64-AllOS-ENU.exe'
-    checksum: 0a3a390c47e639d0f7fc65b21195fee6b7f65b066f80f70c60fab191d14b7e40
-    checksum_algorithm: sha256
-  when:
-    - not ssms_dotnet_framework_48_installed
-    - not ssms_dotnet_framework_installer_file.stat.exists
+      # aka.ms/ssmsfullsetup now serves SSMS 21/22 (Visual Studio installer based),
+      # whose bootstrapper hangs forever when run from a WinRM session and installs
+      # to a different path. Pin the classic SSMS 18.12.1 installer instead.
+      url: 'https://go.microsoft.com/fwlink/?linkid=2199013&clcid=0x409'
+      dest: 'c:\setup\mssql\SSMS_installer.exe'
+  when: not ssms_installer_file.stat.exists
 
-- name: install Microsoft .NET Framework 4.8
-  win_package:
-    path: 'c:\setup\mssql\NDP48-x86-x64-AllOS-ENU.exe'
-    arguments: '/quiet /norestart'
-    expected_return_code:
-      - 0
-      - 3010
-  register: ssms_dotnet_framework_install
-  when: not ssms_dotnet_framework_48_installed
+- name: check SSMS installation already done
+  win_stat:
+    path: "C:\\Program Files (x86)\\Microsoft SQL Server Management Studio 18"
+  register: ssms_installation
 
-- name: reboot after .NET Framework 4.8 install
+- name: Install SSMS
+  win_command: c:\setup\mssql\SSMS_installer.exe /install /quiet /norestart
+  register: install_ssmss
+  when: not ssms_installation.stat.exists
+
+- name: Reboot after install
   win_reboot:
     reboot_timeout: 600
-  when:
-    - not ssms_dotnet_framework_48_installed
-    - ssms_dotnet_framework_install.reboot_required | default(false)
-
-- name: check pending reboot before SSMS install
-  win_shell: |
-    $pending = $false
-    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') { $pending = $true }
-    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') { $pending = $true }
-    $sessionManager = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue
-    if ($sessionManager.PendingFileRenameOperations) { $pending = $true }
-    $pending
-  register: ssms_pending_reboot
-  changed_when: false
-
-- name: reboot before SSMS install
-  win_reboot:
-    reboot_timeout: 600
-  when: ssms_pending_reboot.stdout | trim == 'True'
-
-- name: Install SSMS 22
-  ansible.builtin.include_tasks: ssms22.yml
+  when: not ssms_installation.stat.exists
