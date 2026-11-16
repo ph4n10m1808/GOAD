@@ -58,13 +58,9 @@ fi
 
 pool_name="GOAD"
 expected_pool_path="/mnt/SSD_DATA/Virtualization/KVM/GOAD"
-if [[ "$lab" == "GOAD-Light" ]]; then
-  if ! mountpoint --quiet /mnt/SSD_DATA_1; then
-    echo "GOAD-Light requires /mnt/SSD_DATA_1 to be mounted" >&2
-    exit 1
-  fi
-  pool_name="GOAD-Light"
-  expected_pool_path="/mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light"
+if ! mountpoint --quiet /mnt/SSD_DATA; then
+  echo "GOAD requires /mnt/SSD_DATA to be mounted" >&2
+  exit 1
 fi
 if ! virsh -c qemu:///system pool-info "$pool_name" >/dev/null; then
   echo "Cannot access libvirt storage pool: $pool_name" >&2
@@ -95,7 +91,11 @@ case "$lab" in
     add_box StefanScherer/windows_2016 2017.12.14
     add_box StefanScherer/windows_2016 2019.02.14
     ;;
-  GOAD-Light|GOAD-Mini)
+  GOAD-Light)
+    add_box StefanScherer/windows_2019 2020.07.17
+    add_box StefanScherer/windows_2019 2021.05.15
+    ;;
+  GOAD-Mini)
     add_box StefanScherer/windows_2019 2021.05.15
     ;;
   MINILAB)

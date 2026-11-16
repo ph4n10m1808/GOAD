@@ -127,6 +127,8 @@ def main():
     provider = workspace / 'provider'
     source_pool, source_root = storage_pool_for_lab('GOAD')
     target_pool, target_root = storage_pool_for_lab('GOAD-Light')
+    if source_root == target_root:
+        raise RuntimeError('Legacy split-pool migration is retired; all labs use the GOAD pool. Rebuild or use a separately reviewed relocation plan.')
     if not os.path.ismount('/mnt/SSD_DATA_1'):
         raise RuntimeError('/mnt/SSD_DATA_1 must be mounted')
     if ET.fromstring(virsh('pool-dumpxml', source_pool)).findtext('target/path') != str(source_root):

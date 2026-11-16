@@ -3,7 +3,7 @@
   ansible.windows.win_shell: |
     Add-PSSnapin Microsoft.Exchange.Management.PowerShell.SnapIn
     $users = Get-User -RecipientTypeDetails User -ResultSize Unlimited | Where-Object { $_.RecipientTypeDetails -ne 'MailboxUser' }
-    $excludedUsers = @("administrator", "ansible", "goadmin", "vagrant")
+    $excludedUsers = @("administrator", "ansible", "goadmin", "vagrant", "krbtgt", "soc-siem", "soc-soar", "soc_siem", "soc_soar")
     foreach ($user in $users) {
         if ($excludedUsers -contains $user.samAccountName) {
           Write-Host "user skipped: $user.samAccountName"

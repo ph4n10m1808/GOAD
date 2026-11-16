@@ -1,3 +1,10 @@
-boxes.append(
-  { :name => "{{lab_name}}-SRV01", :ip => "{{ip_range}}.21", :box => "StefanScherer/windows_2019", :box_version => "2021.05.15", :os => "windows", :cpus => 4, :mem => 12000 }
-)
+exchange_box = { :name => "{{lab_name}}-SRV01", :ip => "{{ip_range}}.21", :box => "StefanScherer/windows_2019", :box_version => "2021.05.15", :os => "windows", :cpus => 4, :mem => 12000 }
+exchange_box[:exchange_iso] = File.expand_path(ENV.fetch('GOAD_EXCHANGE_ISO', File.join(File.expand_path('../../../', __dir__), 'extensions/exchange/ansible/iso/resources/iso/ExchangeServer2019-x64-CU9.ISO')))
+if "{{lab_name}}" == "GOAD-Light"
+  exchange_box.merge!(
+    :mem => 10 * 1024,
+    :soc_ip => "192.168.50.23", :soc_gateway => "192.168.50.1",
+    :soc_mac => "52:54:00:50:20:23", :soc_network => "soc-dedicated-es-private"
+  )
+end
+boxes.append(exchange_box)

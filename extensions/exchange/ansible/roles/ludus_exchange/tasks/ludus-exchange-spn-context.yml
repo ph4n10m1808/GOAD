@@ -1,0 +1,26 @@
+---
+- name: Select the exact GOAD-Light constrained-delegation compatibility guard
+  ansible.builtin.set_fact:
+    exchange_lab_spn_guard: "{{ domain_name | default('') == 'GOAD-Light' and ludus_os_version in ['2019', '2022'] }}"
+
+- name: Validate the selected lab forest before touching its scenario SPN
+  ansible.builtin.assert:
+    that:
+      - lab.hosts.dc02.domain.endswith('.' + lab.hosts.dc01.domain)
+      - lab.hosts.srv01.domain == lab.hosts.dc01.domain
+  when: exchange_lab_spn_guard
+
+- name: Restore a previously interrupted exact lab SPN before any Setup task
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Protect-ExchangeLabSpn.ps1') }}"
+    parameters:
+      Action: Recover
+      ChildDC: "{{ lab.hosts.dc02.hostname | lower }}.{{ lab.hosts.dc02.domain }}"
+      ChildDomain: "{{ lab.hosts.dc02.domain }}"
+      RootDomain: "{{ lab.hosts.dc01.domain }}"
+  vars:
+    ansible_become: true
+    ansible_become_method: runas
+    ansible_become_user: "{{ ludus_exchange_domain_username }}"
+    ansible_become_password: "{{ ludus_exchange_domain_password }}"
+  when: exchange_lab_spn_guard

@@ -1,13 +1,24 @@
 ---
+- name: Discover host-native libvirt media after prerequisite reboots
+  ansible.builtin.include_tasks: ludus-exchange-libvirt-media.yml
+  when: ludus_exchange_libvirt_media | default(false) | bool
+
 - name: Mount Exchange ISO
   community.windows.win_disk_image:
     image_path: "{{ ludus_exchange_iso_directory }}\\{{ ludus_exchange_iso_url.split('/') | last }}"
     state: present
   register: iso_mount
+  when: not (ludus_exchange_libvirt_media | default(false) | bool)
+
+- name: Retain the file-mounted setup path for non-libvirt providers
+  ansible.builtin.set_fact:
+    exchange_setup_path: "{{ iso_mount.mount_paths[0] }}Setup.exe"
+  when: not (ludus_exchange_libvirt_media | default(false) | bool)
 
 - name: Prepare Schema
   ansible.windows.win_shell: |
-    & {{ iso_mount.mount_paths[0] }}Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareSchema
+    & "{{ exchange_setup_path }}" /IAcceptExchangeServerLicenseTerms /PrepareSchema
+    exit $LASTEXITCODE
   vars:
     ansible_become: true
     ansible_become_method: runas
@@ -16,28 +27,49 @@
 
 - name: Prepare Active Directory
   ansible.windows.win_shell: |
-    & {{ iso_mount.mount_paths[0] }}Setup.exe /IAcceptExchangeServerLicenseTerms /PrepareAD /OrganizationName:"{{ ludus_exchange_domain }}"
+    & "{{ exchange_setup_path }}" /IAcceptExchangeServerLicenseTerms /PrepareAD /OrganizationName:"{{ ludus_exchange_domain }}"
+    exit $LASTEXITCODE
   vars:
     ansible_become: true
     ansible_become_method: runas
     ansible_become_user: "{{ ludus_exchange_domain_username }}"
     ansible_become_password: "{{ ludus_exchange_domain_password }}"
 
+- name: Prepare all GOAD forest domains with recoverable lab SPN handling
+  ansible.builtin.include_tasks: ludus-exchange-forest.yml
+
 - name: Install Exchange
   ansible.windows.win_shell: |
-    & {{ iso_mount.mount_paths[0] }}Setup.exe /IAcceptExchangeServerLicenseTerms /Mode:Install /Role:Mailbox
+    & "{{ exchange_setup_path }}" /IAcceptExchangeServerLicenseTerms /Mode:Install /Role:Mailbox
+    exit $LASTEXITCODE
   vars:
     ansible_become: true
     ansible_become_method: runas
     ansible_become_user: "{{ ludus_exchange_domain_username }}"
     ansible_become_password: "{{ ludus_exchange_domain_password }}"
+
+- name: Restart after Exchange Setup completes
+  ansible.windows.win_reboot:
+    reboot_timeout: 2400
+    post_reboot_delay: 60
+
+- name: Verify installed Exchange transport service
+  ansible.windows.win_service:
+    name: MSExchangeFrontendTransport
+    state: started
 
 - name: Unmount ISO
   community.windows.win_disk_image:
     image_path: "{{ ludus_exchange_iso_directory }}\\{{ ludus_exchange_iso_url.split('/') | last }}"
     state: absent
+  when: not (ludus_exchange_libvirt_media | default(false) | bool)
 
 - name: Remove ISO file
   ansible.windows.win_file:
     path: "{{ ludus_exchange_iso_directory }}\\{{ ludus_exchange_iso_url.split('/') | last }}"
     state: absent
+  when: not (ludus_exchange_libvirt_media | default(false) | bool)
+
+- name: Release host media after completed Exchange setup
+  ansible.builtin.include_tasks: ludus-release-libvirt-media.yml
+  when: ludus_exchange_libvirt_media | default(false) | bool

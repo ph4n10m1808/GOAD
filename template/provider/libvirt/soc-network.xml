@@ -1,0 +1,6 @@
+<network>
+  <name>soc-dedicated-es-private</name>
+  <bridge name="virbr50" stp="on" delay="0"/>
+  <dns enable="no"/>
+  <ip address="192.168.50.1" netmask="255.255.255.0"/>
+</network>

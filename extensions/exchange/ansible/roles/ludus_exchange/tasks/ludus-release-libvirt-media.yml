@@ -1,0 +1,30 @@
+- name: Resolve the selected native instance before releasing media
+  ansible.builtin.include_role:
+    name: "{{ playbook_dir }}/../../../ansible/roles/settings/instance_context"
+
+- name: Verify complete native Exchange setup before releasing host media
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $role = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\ExchangeServer\v15\MailboxRole' -ErrorAction Stop
+      if ([string]::IsNullOrWhiteSpace([string]$role.ConfiguredVersion) -or
+          [string]$role.ConfiguredVersion -ne [string]$role.UnpackedVersion -or
+          (Get-Service MSExchangeFrontendTransport -ErrorAction Stop).Status -ne 'Running') {
+        throw 'Exchange Mailbox setup is incomplete; keep the host CD-ROM attached for recovery'
+      }
+  when: ludus_exchange_libvirt_media | default(false) | bool
+
+- name: Release host CD-ROM only after verified Exchange installation
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - "{{ playbook_dir }}/../../../goad/provider/vagrant/exchange_media.py"
+      - detach
+      - --workspace
+      - "{{ goad_instance_dir }}/provider"
+      - --vm-name
+      - "{{ domain_name }}-SRV01"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: ludus_exchange_libvirt_media | default(false) | bool

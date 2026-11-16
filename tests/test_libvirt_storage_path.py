@@ -16,7 +16,7 @@ class StoragePathTest(unittest.TestCase):
             ('/mnt/SSD_DATA/Virtualization/KVM/GOAD', True),
             ('/mnt/SSD_DATA/Virtualization/KVM', False),
         ]:
-            with self.subTest(path=path), patch(
+            with self.subTest(path=path), patch('goad.command.linux.os.path.ismount', return_value=True), patch(
                 'goad.command.linux.subprocess.run',
                 return_value=SimpleNamespace(
                     returncode=0, stdout=f'<pool><target><path>{path}</path></target></pool>'
@@ -24,14 +24,14 @@ class StoragePathTest(unittest.TestCase):
             ):
                 self.assertEqual(LinuxCommand()._validate_libvirt_pool_path(), expected)
 
-    def test_light_provider_uses_second_ssd_and_rejects_old_pool(self):
+    def test_light_provider_uses_shared_pool_and_rejects_old_split_pool(self):
         provider = LibvirtProvider("GOAD-Light")
-        self.assertEqual(provider.command.libvirt_pool_name, "GOAD-Light")
+        self.assertEqual(provider.command.libvirt_pool_name, "GOAD")
         self.assertEqual(provider.STORAGE_POOL_PATH,
-                         Path("/mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light"))
+                         Path("/mnt/SSD_DATA/Virtualization/KVM/GOAD"))
         for target, valid in [
             (str(provider.STORAGE_POOL_PATH), True),
-            ("/mnt/SSD_DATA/Virtualization/KVM/GOAD", False),
+            ("/mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light", False),
         ]:
             with self.subTest(target=target), patch(
                 "goad.command.linux.subprocess.run",
@@ -39,10 +39,10 @@ class StoragePathTest(unittest.TestCase):
                     f"<pool><target><path>{target}</path></target></pool>"),
             ) as run, patch('goad.command.linux.os.path.ismount', return_value=True):
                 self.assertEqual(provider.command._validate_libvirt_pool_path(), valid)
-                self.assertEqual(run.call_args.args[0][-1], "GOAD-Light")
+                self.assertEqual(run.call_args.args[0][-1], "GOAD")
         self.assertEqual(LibvirtProvider("GOAD").command.libvirt_pool_name, "GOAD")
 
-    def test_unmounted_second_ssd_blocks_light_before_libvirt(self):
+    def test_unmounted_shared_ssd_blocks_light_before_libvirt(self):
         provider = LibvirtProvider("GOAD-Light")
         with patch('goad.command.linux.os.path.ismount', return_value=False), patch(
             'goad.command.linux.subprocess.run'
@@ -94,6 +94,6 @@ class StoragePathTest(unittest.TestCase):
                                     ['ruby', '-e', guard, '--', command],
                                     env=env, capture_output=True, text=True,
                                 )
-                                unsafe = target != required or (lab_name == 'GOAD-Light' and not mounted)
+                                unsafe = target != required or not mounted
                                 blocked = unsafe and command in ['up', 'reload', 'resume']
                                 self.assertEqual(result.returncode != 0, blocked, result.stderr)

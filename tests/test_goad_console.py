@@ -22,6 +22,32 @@ class GoadConsoleTest(unittest.TestCase):
         self.console.lab_manager.current_instance = Mock()
         self.console.lab_manager.get_current_instance_id.return_value = 'example-instance'
 
+    def test_extension_batch_runs_in_order_with_public_elastic_options(self):
+        self.console.do_install_extension = Mock(return_value=True)
+        ca = '/tmp/CA directory/public.crt'
+        self.assertTrue(self.console.install_extensions(['sysmon', 'elastic_agent'],
+            {'ip': 'https://fleet.example.com:8220', 'crt': ca, 'version': '9.5.6'}))
+        calls = self.console.do_install_extension.call_args_list
+        self.assertEqual(calls[0].args, ('sysmon',))
+        import shlex
+        self.assertEqual(shlex.split(calls[1].args[0]), ['elastic_agent', '--ip',
+            'https://fleet.example.com:8220', '--crt', ca, '--version', '9.5.6'])
+
+    def test_extension_batch_stops_on_failure(self):
+        self.console.do_install_extension = Mock(side_effect=[False, True])
+        self.assertFalse(self.console.install_extensions(['sysmon', 'elastic_agent']))
+        self.console.do_install_extension.assert_called_once_with('sysmon')
+
+    def test_extension_batch_validates_before_installation(self):
+        self.console.do_install_extension = Mock(return_value=True)
+        lab = self.console.lab_manager.get_current_instance_lab.return_value
+        lab.get_extension.side_effect = lambda name: None if name == 'unknown' else Mock()
+        for names in ([], ['sysmon', 'sysmon'], ['sysmon', 'unknown']):
+            self.assertFalse(self.console.install_extensions(names))
+        self.console.lab_manager.get_current_instance.return_value = None
+        self.assertFalse(self.console.install_extensions(['sysmon']))
+        self.console.do_install_extension.assert_not_called()
+
     def test_successful_load_does_not_stop_command_loop(self):
         stop = self.console.onecmd('load example-instance')
 

@@ -153,7 +153,8 @@ class LibvirtProviderTest(unittest.TestCase):
             self.assertNotIn("VAGRANT_NO_PARALLEL", rendered)
             self.assertIn("libvirt.storage_pool_name = goad_storage_pool", rendered)
             self.assertIn("libvirt.snapshot_pool_name = goad_storage_pool", rendered)
-            self.assertIn(f'goad_storage_pool = "{lab_dir.name}" == "GOAD-Light"', rendered)
+            self.assertIn('goad_storage_pool = "GOAD"', rendered)
+            self.assertIn('box[:name].start_with?("#{lab_name}-") ? "" : "#{lab_name}-"', rendered)
             self.assertNotIn("GOAD_LIBVIRT_COMPATIBILITY", rendered)
             self.assertIn("GOAD_VIRTIO_WIN_ISO", rendered)
             self.assertIn('libvirt.cpu_mode = "host-passthrough"', rendered)
@@ -520,10 +521,29 @@ class LibvirtProviderTest(unittest.TestCase):
             ],
         )
 
+    def test_storage_restore_preserves_current_domain_name(self):
+        with tempfile.TemporaryDirectory() as folder:
+            provider = LibvirtProvider.__new__(LibvirtProvider)
+            provider.path = folder
+            provider._domain_uuid = lambda name: 'saved-uuid'
+            provider._dump_domain_xml = lambda name: '<domain><name>GOAD-Light-DC01</name><uuid>saved-uuid</uuid><devices/></domain>'
+            captured = []
+            def define(args):
+                captured.append(ET.parse(args[1]).getroot())
+                return SimpleNamespace(returncode=0)
+            provider._virsh = define
+            self.assertTrue(provider._define_domain_xml('GOAD-Light-DC01', '<domain><name>old-instance-DC01</name><uuid>saved-uuid</uuid><devices/></domain>'))
+            self.assertEqual(captured[0].findtext('name'), 'GOAD-Light-DC01')
+            self.assertEqual(captured[0].findtext('uuid'), 'saved-uuid')
+            self.assertFalse(provider._define_domain_xml('GOAD-Light-DC01', '<domain><name>foreign</name><uuid>other-uuid</uuid></domain>'))
+            self.assertEqual(len(captured), 1)
+
     def test_start_refreshes_storage_pool(self):
         provider = LibvirtProvider("GOAD")
         provider.path = "/provider"
         provider.command = FakeCommand()
+        provider._preflight_exchange_media = lambda *args: True
+        provider.tune_storage = lambda *args: True
 
         self.assertTrue(provider.start())
         self.assertTrue(provider.start_vm("DC01"))
@@ -534,6 +554,7 @@ class LibvirtProviderTest(unittest.TestCase):
         provider.path = "/provider"
         provider.command = FakeCommand()
         provider._machine_names = lambda: ["DC01", "DC02", "DC03", "SRV02", "SRV03"]
+        provider._preflight_exchange_media = lambda *args: True
 
         self.assertTrue(provider.start())
         self.assertEqual(

@@ -6,7 +6,7 @@ extensions/
     <extension_name>/
         ansible/            # mandatory
             install.yml     # mandatory
-        providers/          # mandatory
+        providers/          # only when adding provider resources
             aws/
             azure/
             ludus/
@@ -38,7 +38,7 @@ extensions/
 
 ## Providers
 
-- If the extension need provisioning (new vm) add in each provider folder the vm(s) needed.
+- For a new VM, add its definition to each supported provider folder, including libvirt when selected. Provisioning-only extensions such as Sysmon/Elastic Agent do not add provider resources; omit provider definitions and use the native install/uninstall playbooks. An absent providers directory yields an empty provider list.
 - Providers follow the following types
     - Vagrant:
         - vmware
@@ -244,7 +244,7 @@ extensions/
         be sure to have the template ready before see [https://docs.ludus.cloud/docs/templates](https://docs.ludus.cloud/docs/templates)
 
 ## Ansible inventory
-- Create the ansible inventory file : `extension/<extension_name>/inventory`
+- Create the ansible inventory file : `extensions/<extension_name>/inventory`
 - an example could be :
 
 ```ini
@@ -298,7 +298,7 @@ vm_name
 
 The providers to add the vms you need are setup, now you should add the provisioning part.
 
-To do that you must add the file `extension/<extension_name>/ansible/install.yml`
+To do that you must add the file `extensions/<extension_name>/ansible/install.yml`
 
 The file should be the following:
 
@@ -312,12 +312,12 @@ The file should be the following:
     role_variable: "value"
 ```
 
-You should create each ansible role you use in `extension/<extension_name>/ansible/roles/<role_name>`
+You should create each ansible role you use in `extensions/<extension_name>/ansible/roles/<role_name>`
 
 - If you need to use goad roles you can include it by creating an ansible.cfg file with the following contents:
 
 ```ini
-# extension/<extension_name>/ansible/ansible.cfg
+# extensions/<extension_name>/ansible/ansible.cfg
 [defaults]
 host_key_checking = false
 display_skipped_hosts = false
@@ -354,7 +354,7 @@ roles_path = ./roles:../../../ansible/roles
         lab: "{{ lab|combine(lab_extension, recursive=True) }}"
 ```
 
-- and create the json file in `extension/<extension_name>/data/config.json`
+- and create the json file in `extensions/<extension_name>/data/config.json`
 
 ```json
 {

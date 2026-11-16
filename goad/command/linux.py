@@ -125,8 +125,8 @@ class LinuxCommand(Command):
         return True
 
     def _validate_libvirt_pool_path(self):
-        if self.libvirt_pool_name == 'GOAD-Light' and not os.path.ismount('/mnt/SSD_DATA_1'):
-            Log.error('GOAD-Light requires /mnt/SSD_DATA_1 to be mounted')
+        if self.libvirt_pool_name == 'GOAD' and not os.path.ismount('/mnt/SSD_DATA'):
+            Log.error('GOAD requires /mnt/SSD_DATA to be mounted')
             return False
         expected = str(self.libvirt_pool_path)
         try:

@@ -1,5 +1,6 @@
 import cmd
 import argparse
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -341,8 +342,28 @@ class Goad(cmd.Cmd):
                 Log.error('Install extension can only be run from an instance')
                 return False
 
+    def install_extensions(self, names, elastic_options=None):
+        """Run selected extension installers in order; never continue after failure."""
+        if (self.lab_manager.get_current_instance() is None or not names
+                or len(names) != len(set(names))):
+            Log.error('Select an existing instance and distinct extensions with -i and -e.')
+            return False
+        lab = self.lab_manager.get_current_instance_lab()
+        if any(lab.get_extension(name) is None for name in names):
+            Log.error('Unknown extension; no installer was started.')
+            return False
+        for name in names:
+            argument = name
+            if name == 'elastic_agent':
+                for flag, value in (elastic_options or {}).items():
+                    if value is not None:
+                        argument += ' --' + flag + ' ' + shlex.quote(value)
+            if self.do_install_extension(argument) is not True:
+                return False
+        return True
+
     def do_uninstall_extension(self, arg):
-        """Uninstall a provisioning-only extension from the loaded lab instance."""
+        """Uninstall an extension using its scoped playbook or provider removal."""
         # cmd.Cmd treats a true return value as a request to exit the console.
         self.uninstall_extension(arg)
 
@@ -359,11 +380,20 @@ class Goad(cmd.Cmd):
         if extension is None or extension_name not in instance.extensions:
             Log.error('Extension not found or not enabled in the loaded instance')
             return False
-        # Removing infrastructure extensions needs a provider-specific plan. Do
-        # not rewrite its provider configuration or destroy extension VMs here.
         if extension.list_providers_name():
-            Log.error('Extensions with provider resources require a separate removal plan')
-            return False
+            if extension_name != 'exchange':
+                Log.error('This infrastructure extension requires a separate removal plan')
+                return False
+            provider = self.lab_manager.get_current_instance_provider()
+            remove = getattr(provider, 'remove_extension', None)
+            if not callable(remove) or not remove(extension_name):
+                Log.error('Provider removal did not complete; extension remains enabled')
+                return False
+            instance.disable_extension(extension_name)
+            inventory = Path(instance.instance_path) / (extension_name + '_inventory')
+            inventory.unlink(missing_ok=True)
+            Log.info(f'Extension {extension_name} VM removed and disabled; AD configuration/schema retained')
+            return True
         playbook = Path(extension.get_ansible_path()) / extension.get_playbook(install=False)
         if not playbook.is_file():
             Log.error('Extension has no uninstall playbook; instance unchanged')
@@ -560,7 +590,7 @@ class Goad(cmd.Cmd):
 
 
 def parse_args():
-    task_help = 'tasks available : (install/start/stop/restart/destroy/status/show)'
+    task_help = 'tasks available : (install/install_extension/start/stop/restart/destroy/status/show)'
     parser = argparse.ArgumentParser(prog='goad.py',
                                      description='Description : goad lab management console.',
                                      epilog=show_help(), formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -571,6 +601,9 @@ def parse_args():
     parser.add_argument("-m", "--method", help="deploy method to use (default: local)", default='local', required=False)
     parser.add_argument("-i", "--instance", help="use a specific instance (use default if not selected)", required=False)
     parser.add_argument("-e", "--extensions", help="extensions to use", action='append', required=False)
+    parser.add_argument("--fleet-url", help="Fleet HTTPS URL for install_extension elastic_agent")
+    parser.add_argument("--fleet-ca", help="Local public CA bundle for install_extension elastic_agent")
+    parser.add_argument("--agent-version", help="Exact Agent version for install_extension elastic_agent")
     parser.add_argument("-a", "--ansible_only", help="run only provisioning (ansible) on instance (-i) (for task install only)", required=False)
     parser.add_argument("-r", "--run_playbook", help="run only one ansible playbook on instance (-i) (for task install only)", required=False)
     parser.add_argument("-d", "--disable_dependencies", help="disable_dependencies", action='append', required=False)
@@ -616,6 +649,15 @@ if __name__ == '__main__':
                         task_result = goad.do_install_instance()
                 else:
                     task_result = goad.do_install()
+            elif args.task == 'install_extension':
+                if args.instance is None:
+                    Log.error('Extension installation requires an existing instance (-i).')
+                    task_result = False
+                else:
+                    task_result = goad.install_extensions(args.extensions, {
+                        'ip': args.fleet_url, 'crt': args.fleet_ca,
+                        'version': args.agent_version,
+                    })
             elif args.task == 'check':
                 task_result = goad.do_check()
             elif args.task == 'start':

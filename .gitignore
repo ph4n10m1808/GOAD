@@ -36,9 +36,13 @@ ad/*/providers/*/extensions/*.rb
 __pycache__/
 *.pyc
 workspace/*
+**/.soc-credentials/
 todo.md
 next_extensions/
 /extensions/exchange/ansible/iso/resources/iso/*.ISO
+/extensions/exchange/ansible/iso/resources/iso/*.iso
+/extensions/exchange/ansible/iso/resources/iso/*.part
+/extensions/exchange/ansible/iso/resources/iso/.exchange-media.lock
 docs/site/
 docs/olddocs/
 docs/mkdocs/site/

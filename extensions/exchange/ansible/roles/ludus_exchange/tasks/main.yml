@@ -1,8 +1,23 @@
 ---
-- name: Check if Exchange is installed
-  win_service:
-    name: "MSExchangeFrontendTransport"
-  register: exchange_installed
+- name: Recover pending GOAD-Light scenario state before Exchange Setup
+  ansible.builtin.include_tasks: ludus-exchange-spn-context.yml
+
+- name: Verify a completely configured Exchange Mailbox role
+  ansible.windows.win_powershell:
+    script: |
+      $role = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\ExchangeServer\v15\MailboxRole' -ErrorAction SilentlyContinue
+      $service = Get-Service MSExchangeFrontendTransport -ErrorAction SilentlyContinue
+      $ready = $null -ne $service -and $null -ne $role -and
+          -not [string]::IsNullOrWhiteSpace([string]$role.ConfiguredVersion) -and
+          [string]$role.ConfiguredVersion -eq [string]$role.UnpackedVersion
+      $Ansible.Changed = $false
+      [pscustomobject]@{complete=[bool]$ready}
+  register: exchange_role_state
+
+- name: Retain native role completion state
+  ansible.builtin.set_fact:
+    exchange_installed:
+      exists: "{{ exchange_role_state.output[0].complete | bool }}"
 
 - name: Download Exchange ISO for Windows Server 2016
   ansible.builtin.include_tasks: ludus-download-exchange-2016.yml
@@ -10,7 +25,7 @@
 
 - name: Download Exchange ISO for Windows Server 2019
   ansible.builtin.include_tasks: ludus-download-exchange-2019.yml
-  when: ludus_os_version in ["2019", "2022"] and not exchange_installed.exists
+  when: ludus_os_version in ["2019", "2022"] and not exchange_installed.exists and not (ludus_exchange_libvirt_media | default(false) | bool)
 
 - name: Ludus Exchange Server features to be installed
   ansible.builtin.include_tasks: ludus-exchange-pre.yml
@@ -27,9 +42,49 @@
 - name: Create ad users mailbox
   ansible.builtin.include_tasks: ludus-create-mailbox.yml
 
+- name: Recover a pending CD-ROM eject for an already configured Exchange server
+  ansible.builtin.include_tasks: ludus-release-libvirt-media.yml
+  when: ludus_os_version in ["2019", "2022"] and exchange_installed.exists and (ludus_exchange_libvirt_media | default(false) | bool)
+
 - name: Setup internal dns adapter
   ansible.builtin.include_tasks: ludus-exchange-dns.yml
 
 #- name: Run the send connector task
 #  ansible.builtin.include_tasks: ludus_sendconnector.yml
 #  when: exchange_installed.exists or send_connector_name is defined
+
+- name: Prepare native Windows audit sources without installing an Agent or Sysmon
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', playbook_dir ~ '/../../elastic_agent/ansible/roles/elastic_agent_windows/files/Configure-SocAuditing.ps1') }}"
+  register: exchange_windows_audit
+  changed_when: (exchange_windows_audit.output | last | from_json).changed | length > 0
+
+- name: Enable reviewed native Exchange logging and discover supported channels
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Configure-ExchangeLogging.ps1') }}"
+  vars:
+    ansible_become: true
+    ansible_become_method: runas
+    ansible_become_user: "{{ ludus_exchange_domain_username }}"
+    ansible_become_password: "{{ ludus_exchange_domain_password }}"
+  register: exchange_logging_readback
+
+- name: Preserve native Exchange IIS W3C fields without assuming an anonymous HTTP endpoint
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', playbook_dir ~ '/../../../ansible/roles/iis/files/Configure-SocIisLogging.ps1') }}"
+    parameters:
+      VerifyLocalHttp: false
+  register: exchange_iis_logging
+  changed_when: (exchange_iis_logging.output | last | from_json).changed | bool
+
+- name: Resolve the selected instance before saving Exchange logging evidence
+  ansible.builtin.include_role:
+    name: settings/instance_context
+
+- name: Record Exchange logging readback on the controller
+  ansible.builtin.copy:
+    content: "{{ exchange_logging_readback.output[0] }}"
+    dest: "{{ goad_instance_dir }}/exchange-logging-readback.json"
+    mode: '0600'
+  delegate_to: localhost
+  become: false

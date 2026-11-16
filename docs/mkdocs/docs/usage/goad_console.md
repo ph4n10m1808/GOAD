@@ -126,7 +126,7 @@ set_lab <lab_name>
 Choose the provider to use (virtualbox/libvirt/vmware/aws/azure/ludus/proxmox)
 
 ```
-set_provider <lab_name>
+set_provider <provider>
 ```
 
 
@@ -135,7 +135,7 @@ set_provider <lab_name>
 Choose the provisioning method (local/runner/docker/remote) (most of the time you don't have to change it)
 
 ```
-set_provisioning <provisioning_method>
+set_provisioning_method <provisioning_method>
 ```
 
 - local : launch ansible with subprocess (default for vbox/vmware/proxmox/ludus)
@@ -288,11 +288,19 @@ list_extensions
 Add an extension to the lab (providing + provisioning)
 
 !!! warning
-    An installed extension can't be deleted
+    Removal is scoped: provisioning-only extensions need an uninstall playbook and local provisioner. Exchange VM removal supports GOAD-Light/libvirt only; AD schema/configuration remains. Other infrastructure extensions need a separate removal plan.
 
 ```
 install_extension <extension_name>
 ```
+
+### uninstall_extension
+
+```text
+uninstall_extension <extension_name>
+```
+
+Requires the extension enabled on the loaded instance and a supported scoped removal path. Failed or uncertain removal retains enabled state for recovery. Do not treat VM removal as AD cleanup; see [Exchange boundaries](../extensions/exchange.md).
 
 ### provision_extension
 
@@ -384,11 +392,11 @@ Launch the install (useful if you created an empty instance)
 install
 ```
 
-### set_as_defualt
+### set_as_default<a id="set_as_defualt"></a>
 
 Set the current instance as default (automatically loaded on goad start)
 ```
-set_as_defualt
+set_as_default
 ```
 
 ### update_instance_files

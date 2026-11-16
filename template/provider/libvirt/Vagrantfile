@@ -1,12 +1,12 @@
-# GOAD-Light always uses the second SSD; other labs retain their pool.
-goad_storage_pool = "{{lab_name}}" == "GOAD-Light" ? "GOAD-Light" : "GOAD"
-goad_storage_path = goad_storage_pool == "GOAD-Light" ? "/mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light" : "/mnt/SSD_DATA/Virtualization/KVM/GOAD"
+# All local GOAD labs and extension VMs use the operator-selected shared pool.
+goad_storage_pool = "GOAD"
+goad_storage_path = "/mnt/SSD_DATA/Virtualization/KVM/GOAD"
 
 # Validate storage for commands that create or restart guests.
 # Keep status, halt and destroy usable when the pool needs repair.
 if (ARGV & %w[up reload resume]).any?
-  if goad_storage_pool == "GOAD-Light" && !system('mountpoint', '--quiet', '/mnt/SSD_DATA_1')
-    abort 'GOAD-Light requires /mnt/SSD_DATA_1 to be mounted.'
+  if !system('mountpoint', '--quiet', '/mnt/SSD_DATA')
+    abort 'GOAD requires /mnt/SSD_DATA to be mounted.'
   end
   require 'open3'
   require 'rexml/document'
@@ -33,13 +33,33 @@ virtio_state_dir = File.join(__dir__, '.goad', 'virtio')
 # Non-GOAD-Light labs retain their existing SOC subnet route unless explicitly
 # overridden. GOAD-Light has a directly attached SOC NIC and passes no route.
 soc_network_prefix = ENV.fetch('GOAD_SOC_NETWORK', '192.168.50.0/24')
-# Keep each lab instance together when virt-manager sorts guests by name.
-lab_instance_id = File.basename(File.dirname(__dir__)).split('-').first
-lab_prefix = "{{lab_name}}-#{lab_instance_id}"
+# Keep exactly one lab prefix, including labs/extensions with bare machine keys.
+# Only one instance of a given lab name can coexist on this libvirt connection.
+lab_name = "{{lab_name}}"
 
 {{lab}}
 
 {{extensions}}
+
+# The SOC bridge belongs to the host, not to any lab instance. Require it
+# before Vagrant can create a VM; a newly created network is always owned by
+# vagrant-libvirt, even with always_destroy=false.
+if (ARGV & %w[up reload resume]).any?
+  boxes.select { |box| box.has_key?(:soc_ip) }
+       .map { |box| [box[:soc_network], box[:soc_gateway]] }.uniq.each do |name, gateway|
+    begin
+      xml, status = Open3.capture2('virsh', '-c', 'qemu:///system', 'net-dumpxml', name, '--inactive')
+      network = status.success? ? REXML::Document.new(xml) : nil
+      address = network && REXML::XPath.first(network, '/network/ip')
+      valid = address && address.attributes['address'] == gateway &&
+              address.attributes['netmask'] == '255.255.255.0' &&
+              REXML::XPath.first(network, '/network/ip/dhcp').nil?
+    rescue SystemCallError, REXML::ParseException => error
+      abort "Cannot inspect shared SOC network #{name}: #{error.message}"
+    end
+    abort "Define the persistent host SOC network #{name} first (see providers/libvirt.md)." unless valid
+  end
+end
 
 {% if use_provisioning_vm %}
 boxes.append(
@@ -116,9 +136,24 @@ boxes.append(
             :type => 'qcow2', :size => '1G', :bus => 'virtio',
             :device => 'vdb'
         end
+        if box.has_key?(:exchange_iso)
+          exchange_media_complete = File.join(__dir__, '.goad', 'exchange-media', box[:name] + '.complete')
+          exchange_vm_id = File.join(__dir__, '.vagrant', 'machines', box[:name], 'libvirt', 'id')
+          media_complete_for_vm = File.file?(exchange_media_complete) && File.file?(exchange_vm_id) &&
+            File.read(exchange_media_complete).strip == File.read(exchange_vm_id).strip
+          unless media_complete_for_vm
+            if (ARGV & %w[up reload resume]).any? && !File.file?(box[:exchange_iso])
+              abort 'Prepare the cached Exchange ISO before starting the Exchange VM.'
+            end
+            # CD-ROM media is read-only; hdc remains reserved for VirtIO bootstrap.
+            libvirt.storage :file,
+              :device => :cdrom, :type => 'raw', :bus => 'ide',
+              :dev => 'hdd', :path => box[:exchange_iso]
+          end
+        end
         libvirt.storage_pool_name = goad_storage_pool
         libvirt.snapshot_pool_name = goad_storage_pool
-        libvirt.default_prefix = lab_prefix
+        libvirt.default_prefix = box[:name].start_with?("#{lab_name}-") ? "" : "#{lab_name}-"
         unless is_linux
           # Windows reads its hardware RTC as local time; match the guest UTC+7 timezone.
           libvirt.clock_offset = 'localtime'
@@ -132,7 +167,7 @@ boxes.append(
         end
       end
 
-      target.vm.box_download_insecure = box[:box]
+      target.vm.box_download_insecure = false
       target.vm.box = box[:box]
       if box.has_key?(:box_version)
         target.vm.box_version = box[:box_version]
@@ -155,6 +190,8 @@ boxes.append(
           auto_config: false,
           libvirt__network_name: box[:soc_network],
           libvirt__dhcp_enabled: false,
+          libvirt__always_destroy: false,
+          libvirt__forward_mode: "none",
           libvirt__driver_queues: ((is_linux || network_ready) ? virtio_queues : nil)
       end
 

@@ -69,7 +69,7 @@
   vars:
     domain: "{{lab.hosts[dict_key].domain}}"
     ludus_exchange_domain: "{{domain.split('.')[0]}}"
-    ludus_exchange_dc: "{{lab.hosts[dict_key].hostname}}.{{domain}}"
+    ludus_exchange_dc: "{{lab.hosts[dns_domain].hostname}}.{{lab.hosts[dns_domain].domain}}"
     ludus_exchange_host: "{{lab.hosts[dict_key].hostname}}"
     ludus_exchange_domain_username: "{{domain}}\\{{admin_user}}"
     ludus_exchange_domain_password: "{{lab.domains[domain].domain_password}}"
@@ -78,8 +78,11 @@
     exchange_prereqs_complete_file: "{{ ludus_exchange_iso_directory }}\\exchange_prereqs_complete.txt"
     send_connector_source_transport_servers: "{{ludus_exchange_host}}"
     ludus_install_directory: "./iso"
+    ludus_exchange_libvirt_media: "{{ (ansible_inventory_sources | select('match', '^/.*/workspace/[^/]+-libvirt/inventory$') | list | length) > 0 }}"
 
 - name: Add exchange mail reader bot
   hosts: srv01
   roles:
-    - { role: 'exchange_bot', tags: 'exchange_bot' }
+    - role: exchange_bot
+      tags: exchange_bot
+      when: exchange_mail_reader_bot_enabled | default(false) | bool

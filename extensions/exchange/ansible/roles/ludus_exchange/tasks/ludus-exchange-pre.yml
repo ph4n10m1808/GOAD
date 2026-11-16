@@ -1,4 +1,9 @@
 ---
+- name: Prepare the Exchange working directory independently of ISO delivery
+  ansible.windows.win_file:
+    path: "{{ ludus_exchange_iso_directory }}"
+    state: directory
+
 - name: Check if pre-req installation is completed
   win_stat:
     path: "{{ exchange_prereqs_complete_file }}"
@@ -60,15 +65,31 @@
 
     - name: Reboot after installing .NET Framework 4.8
       win_reboot:
-      when: dotnet_install.rc == 3010  # 3010 means a reboot is required
+      when: dotnet_install.reboot_required | default(false)  # 3010 means a reboot is required
 
     - name: Wait for the machine to be up after reboot
       wait_for_connection:
         timeout: 300
 
+    - name: Install Visual C++ Redistributable for Visual Studio 2012
+      ansible.windows.win_package:
+        path: "{{ vcredist2012_install_path }}"
+        # Burn wrappers can exit while an elevated child still holds the EXE.
+        wait_for_children: true
+        arguments: /quiet /norestart
+        state: present
+      register: vcredist2012_install
+
+    - name: Reboot if Visual C++ 2012 requires it
+      ansible.windows.win_reboot:
+        reboot_timeout: 1200
+      when: vcredist2012_install.reboot_required | default(false)
+
     - name: Install Visual C++ Redistributable for Visual Studio 2013
       win_package:
         path: "{{ vcredist2013_install_path }}"
+        # Burn wrappers can exit while an elevated child still holds the EXE.
+        wait_for_children: true
         arguments: /q /norestart
         state: present
       register: vcredist2013_install
@@ -105,17 +126,18 @@
           - ADLDS
         state: present
 
-    - name: Create file marker for pre-req installation completion
-      win_shell: New-Item -Path "{{ exchange_prereqs_complete_file }}" -ItemType "file"
-      when: not prereq_check.stat.exists
-
     - name: Reboot the system
       win_reboot:
-        reboot_timeout: 300
+        reboot_timeout: 1200
 
     - name: Wait for the machine to be up after reboot
       wait_for_connection:
         timeout: 300
+
+    - name: Create file marker after successful pre-req installation and reboot
+      ansible.windows.win_file:
+        path: "{{ exchange_prereqs_complete_file }}"
+        state: touch
 
   when: not prereq_check.stat.exists
 

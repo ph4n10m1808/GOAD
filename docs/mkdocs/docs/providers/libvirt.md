@@ -1,16 +1,44 @@
 # Libvirt / KVM
 
+## VM names — 16 November 2026
+
+All libvirt labs and VM extensions use exactly one lab prefix plus the existing machine role: `GOAD-Light-DC01`, `GOAD-Light-DC02`, `GOAD-Light-SRV02`, and optional Exchange `GOAD-Light-SRV01`. No instance hash or second lab prefix is added. Bare keys are also prefixed once (`MINILAB-DC01`, `MINILAB-WS01`, `GOAD-ELK`); existing specialized SCCM roles and Linux/WS/extension labels are retained. Logical Vagrant machine keys stay unchanged. Only one same-name lab can coexist on a libvirt connection; native duplicate-name checks refuse a collision. Windows hostnames, AD identities, UUIDs and disk paths are unchanged.
+
+Existing running domains keep their old names until a maintenance window: libvirt `domrename` requires an inactive domain. Stop provisioning cleanly before renaming and keep the Vagrant UUID files unchanged. Never rebuild or rename disk files merely to shorten the VM label. Exchange removal recognizes only the loaded instance’s exact old/new name with its saved UUID and owned disk paths. The production XML define/restore path checks the saved UUID and retains the domain’s current name, so an older VirtIO backup cannot restore an obsolete label. On 16 November, the four existing GOAD-Light domains were renamed while already shut off; native Vagrant status still resolves their unchanged UUIDs.
+
+## GOAD-Light lab additions (15 November 2026)
+
+Current GOAD-Light source keeps upstream VM labels (SRV02 IIS/MSSQL, optional SRV01 Exchange) and only the existing DC01 CA. Legacy LAPS manages SRV02 RID-500, with north OU/GPO on DC02 and forest schema preparation on DC01. The separate Vagrant account remains usable; the selected lab reader is NORTH\samwell.tarly and native expiration-protection removal remains intentional.
+
+Selected ESC2/3/4/6/7/9/10/11/13/15 conditions are prepared without uninstalling OS fixes. ESC3 includes both agent and target templates; ESC4 grants SEVENKINGDOMS\petyer.baelish control over only ESC4. NORTH gmsaDragon is available only to castelblack and has the selected lab GenericAll path to hodor; no IIS/SQL service identity is changed. DC01 hosts CA/template conditions; both DCs get native ESC10 KDC settings and DCs/SRV02 get Schannel UPN mapping. ESC13 links an empty Universal Security group to an issuance policy; that group has local Administrator rights only on SRV02. Patch-dependent ESC10/15 exploitability requires actual build/readback/testing. Existing ESC1 remains.
+
+The final Windows provisioning play enables local Windows/CA/template/LAPS/gMSA audit generation and then disables SRV02 Windows Update, after server features have installed. Auditing preserves weak permissions and flags. No Sysmon/Elastic Agent installation is implied by base provisioning; both are separate opt-in extensions. The operator starts installation manually; source validation is not runtime or exploit acceptance. The SOC repository keeps the complete inventory at deploy/deploy/docs/runbooks/goad-light-monitoring-log-inventory.txt.
+
+### Historical DC and manual install
+
+DC02 now uses publisher Windows Server 2019 box `2020.07.17`; DC01/SRV02/Exchange retain `2021.05.15`. The historical DC is selected for Zerologon, EFSRPC coercion and noPac lab prerequisites. The final install verifies DC role, build 17763 with revision below 1397, Netlogon/KDC, positive machine-account quota and disabled updates; a patched/wrong image fails instead of uninstalling fixes. DC01 Web Enrollment `/certsrv` deliberately accepts NTLM over its existing HTTP binding without EPA/SSL enforcement. These are isolated lab conditions, not exploit results or a production baseline. Zerologon/PetitPotam/noPac are not exclusive to Server 2016.
+
+Prepare the missing native box conversion before install. The previous goad.sh-only command is insufficient when this older libvirt box is absent. From this checkout, run the following single shell command and wait:
+
+```bash
+env PATH="/opt/miniconda3/bin:$PATH" GOAD_CONDA_ENV=goad GOAD_VAGRANT_HOME=/mnt/SSD_DATA/.vagrant.d bash -c 'cd /mnt/SSD_DATA_1/Code/01-Active-Projects/DATN/lab/goad && ./scripts/prepare_libvirt_boxes.sh --lab GOAD-Light --extension exchange && printf "y\n" | ./goad.sh -t install -l GOAD-Light -p libvirt -m local -ip 192.168.49 -e exchange'
+```
+
+For an existing lab, keep the box-preparation step and add `-i INSTANCE_ID` to `goad.sh`. Use the full workspace folder ID from `workspace/<INSTANCE_ID>/instance.json`, not only its six-character prefix. `-t install -i INSTANCE_ID` reuses the saved lab, provider, addresses and extensions, then runs providing/base provisioning and the saved extensions; it does not create another instance. Example after preparing boxes:
+
+```bash
+./goad.sh -t install -i INSTANCE_ID -l GOAD-Light -p libvirt -m local
+```
+
+For only the failed gMSA play, append `-r ad-gmsa.yml`; that runs only this play and does not continue the full Exchange installation. Both forms are manual operator commands, not actions performed by this source review.
+
+This operator-run command downloads/converts missing publisher boxes and installs the lab; it is not run by the source review. Keep both selected image versions, configured storage pool and manual-install-only intent. Sysmon and Elastic Agent require separate explicit installation; the 17 November host acceptance is recorded in the SOC backlog, not implied by this source procedure.
+
 The libvirt provider runs GOAD locally with QEMU/KVM through `vagrant-libvirt`. GOAD's upstream Windows boxes are not published for libvirt, so they must first be converted to QCOW2 with the included helper.
 
 ## VM names in virt-manager
 
-New guests use the prefix `<lab-name>-<instance-id>`, for example
-`GOAD-753549_GOAD-DC01`. Sort by name in virt-manager to keep guests from
-the same lab instance together, including extensions and the provisioning VM.
-This is a naming convention, not a collapsible folder in the interface.
-Vagrant machine names used by GOAD commands remain unchanged.
-Existing guests are not renamed; the prefix takes effect when creating guests
-from the updated provider template.
+Current names use one lab prefix and machine role as defined [above](#vm-names--16-november-2026). The old instance-hash convention is retired. Keep UUIDs, Vagrant keys and disks unchanged; duplicate same-lab names cannot coexist on one libvirt connection.
 
 ## Independent VM disks
 
@@ -96,35 +124,18 @@ export GOAD_VAGRANT_HOME=/mnt/SSD_DATA/.vagrant.d
 export VAGRANT_HOME="$GOAD_VAGRANT_HOME"
 ```
 
-The selected lab fixes the VM and snapshot storage pool:
+All local labs, including GOAD-Light and its Exchange VM, use pool `GOAD` at `/mnt/SSD_DATA/Virtualization/KVM/GOAD`. The earlier separate GOAD-Light pool on SSD_DATA_1 is retired by the 15 November operator decision. Swap remains a separate host setting; it does not choose VM storage.
 
-| Lab | Pool | VM image directory |
-| --- | --- | --- |
-| GOAD-Light | `GOAD-Light` | `/mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light` |
-| Other labs | `GOAD` | `/mnt/SSD_DATA/Virtualization/KVM/GOAD` |
-
-The shared Vagrant box cache stays in `/mnt/SSD_DATA/.vagrant.d` and the VirtIO
-ISO stays on the first SSD. GOAD-Light extensions and a provisioning VM inherit
-the GOAD-Light pool. No environment override can fall back to the former pool.
-The second SSD must be mounted before preparing boxes, creating, reloading or
-resuming GOAD-Light guests; an unavailable mount or incorrect pool target stops
-the operation.
-
-Create the pool once if it does not exist, then start it and enable autostart:
+The shared Vagrant cache remains `/mnt/SSD_DATA/.vagrant.d`. Require `/mnt/SSD_DATA` to be mounted before preparing boxes or starting guests; fail closed on a wrong pool path. Existing disks are never moved implicitly. For the selected full rebuild, delete only the verified old instance VM volumes before recreating it in the shared pool.
 
 ```bash
-# GOAD-Light
-sudo mkdir -p /mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light
-virsh -c qemu:///system pool-define-as GOAD-Light dir --target /mnt/SSD_DATA_1/Virtualization/KVM/GOAD-Light
-virsh -c qemu:///system pool-start GOAD-Light
-virsh -c qemu:///system pool-autostart GOAD-Light
-
-# Other labs, when needed
-sudo mkdir -p /mnt/SSD_DATA/Virtualization/KVM/GOAD
+pkexec install -d /mnt/SSD_DATA/Virtualization/KVM/GOAD
 virsh -c qemu:///system pool-define-as GOAD dir --target /mnt/SSD_DATA/Virtualization/KVM/GOAD
 virsh -c qemu:///system pool-start GOAD
 virsh -c qemu:///system pool-autostart GOAD
 ```
+
+Inspect an existing pool before running creation commands. The retired `migrate_goad_light_storage.py` refuses the now-identical source/target policy and must not be used as a reverse migration.
 
 The pool target is validated before starting Vagrant; an incorrect target stops the operation. GOAD_LIBVIRT_STORAGE_POOL no longer overrides this fixed location. Existing VM disks are not automatically migrated.
 
@@ -139,25 +150,7 @@ sudo setfacl -m u:libvirt-qemu:--x /mnt/SSD_DATA_1
 
 ## Relocate an existing GOAD-Light workspace
 
-The offline helper only supports independent single-disk QCOW2 guests without
-snapshots, managed save or UEFI NVRAM. Shut off the lab through GOAD first and
-avoid concurrent VM/disk changes. Run from the GOAD checkout:
-
-```bash
-python3 scripts/migrate_goad_light_storage.py workspace/<id>-goad-light-libvirt
-python3 scripts/migrate_goad_light_storage.py workspace/<id>-goad-light-libvirt --apply
-```
-
-The first command previews the exact domains and required space. Apply downloads
-sparse image contents through libvirt, checks QCOW2 integrity and full-file SHA256,
-then changes only persistent disk paths while keeping VM UUIDs and settings.
-It updates the existing workspace Vagrantfile without regenerating its settings.
-Old images are removed only after verifying definitions and checking libvirt
-references; guests remain shut off. Definition backups and aggregate evidence
-are stored in a private `.migration-<workspace>` directory beside the new images.
-After an interruption, inspect this journal and the actual domain paths before
-manual recovery; the helper deliberately refuses to overwrite existing targets.
-Source volumes remain available until the final cleanup phase.
+Old date — the former relocation helper targeted a separate GOAD-Light pool on SSD_DATA_1. The selected source/target policy now uses the same GOAD pool, so that helper refuses the operation. Do not run old migration commands as a current relocation procedure. Existing private journals remain recovery evidence; any future move requires exact storage/UUID/reference verification and separate approval.
 
 ## Prepare provider-specific boxes
 
@@ -203,11 +196,26 @@ private subnet differs.
 
 GOAD-Light is handled differently: every domain VM always has a dedicated
 third NIC attached to the existing libvirt network
-`soc-dedicated-es-private`. The static addresses are:
+`soc-dedicated-es-private`.
+
+This is a persistent host-owned network, also used by the SOC gateway. Create it once from the GOAD directory before installing the lab:
+
+```bash
+virsh -c qemu:///system net-define template/provider/libvirt/soc-network.xml
+virsh -c qemu:///system net-autostart soc-dedicated-es-private
+virsh -c qemu:///system net-start soc-dedicated-es-private
+virsh -c qemu:///system net-info soc-dedicated-es-private
+ip -4 addr show dev virbr50
+```
+
+Run define/start only if absent/inactive; do not redefine an existing network without checking its XML. The definition has no DHCP, DNS or NAT. VM start/reload/resume requires the persistent gateway definition; `libvirt__always_destroy: false` prevents vagrant-libvirt from claiming an existing SOC network for destroy. Do not remove this bridge during lab cleanup. This option does not protect a UUID already recorded by older Vagrantfiles: inspect legacy `.vagrant/machines/*/libvirt/created_networks` before destroying an old instance and remove only the verified SOC network UUID from those ownership files, preserving every other entry. Fresh instances use the corrected template.
+
+Static guest addresses:
 
 - `GOAD-Light-DC01`: `192.168.50.20/24`
 - `GOAD-Light-DC02`: `192.168.50.21/24`
 - `GOAD-Light-SRV02`: `192.168.50.22/24`
+- Optional `GOAD-Light-SRV01` Exchange: `192.168.50.23/24`
 
 The NIC is present from the first VM definition. Windows configures its static
 address after the VirtIO network transition, and verifies it again on later

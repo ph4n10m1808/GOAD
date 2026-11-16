@@ -1,0 +1,42 @@
+- name: Resolve the selected native instance before attaching media
+  ansible.builtin.include_role:
+    name: "{{ playbook_dir }}/../../../ansible/roles/settings/instance_context"
+
+- name: Attach the existing host Exchange ISO as a persistent read-only CD-ROM
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - "{{ playbook_dir }}/../../../goad/provider/vagrant/exchange_media.py"
+      - attach
+      - --workspace
+      - "{{ goad_instance_dir }}/provider"
+      - --vm-name
+      - "{{ domain_name }}-SRV01"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Discover Exchange 2019 installation media without assuming a drive letter
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $media = @(Get-CimInstance Win32_CDROMDrive -ErrorAction Stop |
+        Where-Object Drive | ForEach-Object {
+          $setup = Join-Path ($_.Drive + '\') 'Setup.exe'
+          if (Test-Path -LiteralPath $setup -PathType Leaf) {
+            $version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($setup)
+            if ($version.FileMajorPart -eq 15 -and $version.FileMinorPart -eq 2) {
+              [pscustomobject]@{setup=$setup; version=$version.FileVersion}
+            }
+          }
+        })
+      if ($media.Count -ne 1) { throw 'Expected exactly one Exchange 2019 Setup.exe on read-only CD-ROM media' }
+      $media[0]
+  register: exchange_cdrom
+  retries: 12
+  delay: 5
+  until: exchange_cdrom is succeeded
+
+- name: Retain the discovered native Exchange setup path
+  ansible.builtin.set_fact:
+    exchange_setup_path: "{{ exchange_cdrom.output[0].setup }}"

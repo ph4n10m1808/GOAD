@@ -21,9 +21,11 @@ from rich.progress import (
 )
 
 from goad.log import Log
+from goad.goadpath import GoadPath
 from goad.provider.vagrant.vagrant import VagrantProvider
 from goad.provider.vagrant.storage import storage_pool_for_lab
 from goad.provider.vagrant.libvirt_images import BaseImages, InspectionError
+from goad.provider.vagrant.exchange_media import prepare as prepare_exchange_media, media_path as exchange_media_path, completed as exchange_media_completed
 from goad.utils import (
     LIBVIRT,
     PROVISIONING_DOCKER,
@@ -398,6 +400,25 @@ class LibvirtProvider(VagrantProvider):
         )
 
     def _define_domain_xml(self, vm_name, xml_text):
+        # Saved storage XML may predate an operator-approved domain rename.
+        # Restore hardware settings only for the pinned UUID and keep its name.
+        current_xml = self._dump_domain_xml(vm_name)
+        if current_xml is None:
+            return False
+        try:
+            current = ET.fromstring(current_xml)
+            proposed = ET.fromstring(xml_text)
+            identifier = self._domain_uuid(vm_name)
+            if (not identifier or current.findtext("uuid") != identifier
+                    or proposed.findtext("uuid") != identifier
+                    or not current.findtext("name") or proposed.find("name") is None):
+                Log.error(f"Domain XML identity mismatch for {vm_name}; unchanged")
+                return False
+            proposed.find("name").text = current.findtext("name")
+            xml_text = ET.tostring(proposed, encoding="unicode")
+        except ET.ParseError:
+            Log.error(f"Invalid domain XML for {vm_name}; unchanged")
+            return False
         state_dir = self._state_dir(vm_name)
         state_dir.mkdir(parents=True, exist_ok=True)
         temp_path = None
@@ -649,7 +670,7 @@ class LibvirtProvider(VagrantProvider):
         return True
 
     def _detach_external_virtio_iso(self, vm_name):
-        """Keep the shared VirtIO ISO outside vagrant-libvirt's destroy set."""
+        """Keep shared installer ISOs outside vagrant-libvirt's destroy set."""
         if self._domain_uuid(vm_name) is None:
             return True
         xml_text = self._dump_domain_xml(vm_name)
@@ -664,16 +685,16 @@ class LibvirtProvider(VagrantProvider):
         devices = root.find("devices")
         changed = False
         if devices is not None:
-            iso_path = str(self._virtio_iso())
+            shared_paths = {str(self._virtio_iso()), str(exchange_media_path())}
             for disk in list(devices.findall("disk[@device='cdrom']")):
                 source = disk.find("source")
-                if source is not None and source.get("file") == iso_path:
+                if source is not None and source.get("file") in shared_paths:
                     devices.remove(disk)
                     changed = True
 
         if not changed:
             return True
-        Log.info(f"Detaching shared VirtIO ISO from {vm_name} before destroy")
+        Log.info(f"Detaching shared installer ISO from {vm_name} before destroy")
         return self._define_domain_xml(
             vm_name, ET.tostring(root, encoding="unicode")
         )
@@ -748,6 +769,8 @@ class LibvirtProvider(VagrantProvider):
         return True
 
     def install(self):
+        if not self._preflight_exchange_media():
+            return False
         if self._has_windows_definition() and not self._preflight_virtio_iso():
             return False
         self._normalize_state_dependencies()
@@ -822,13 +845,90 @@ class LibvirtProvider(VagrantProvider):
     def destroy_vm(self, vm_name):
         return self._destroy_with_image_cleanup([vm_name], ["destroy", vm_name])
 
+    def remove_extension(self, extension_name):
+        # SRV01 is a base lab machine in full GOAD. Never infer ownership from
+        # an extension name alone or enable this path for another lab/provider.
+        if self.lab_name != "GOAD-Light" or extension_name != "exchange":
+            Log.error('Provider removal currently supports only GOAD-Light/libvirt Exchange')
+            return False
+        vm_name = "GOAD-Light-SRV01"
+        base = Path(GoadPath.get_lab_provider_path(self.lab_name, self.provider_name)) / "Vagrantfile"
+        if vm_name in base.read_text():
+            Log.error('Exchange target is also a base lab VM; refusing removal')
+            return False
+        prefix = "GOAD-Light-" + Path(self.path).parent.name.split('-')[0]
+        expected_name = vm_name
+        # Existing domains/disks retain their exact instance-prefixed identity
+        # until an operator-approved stopped-domain rename. UUID remains pinned.
+        owned_names = {expected_name, prefix + vm_name}
+        id_file = Path(self.path) / '.vagrant' / 'machines' / vm_name / 'libvirt' / 'id'
+        if id_file.is_symlink():
+            Log.error('Unsafe Vagrant VM identity; instance unchanged')
+            return False
+        domains = self._virsh(['list', '--all', '--name'])
+        if domains is None or domains.returncode != 0:
+            return False
+        if not id_file.exists():
+            status = self._vagrant_result(['status', vm_name, '--machine-readable'])
+            states = [] if status is None else [r[3] for r in csv.reader(io.StringIO(status.stdout))
+                if len(r) >= 4 and r[1] == vm_name and r[2] == 'state']
+            if (status is None or status.returncode != 0 or states != ['not_created']
+                    or owned_names.intersection(domains.stdout.splitlines())):
+                Log.error('VM identity is missing but absence is unverified; instance unchanged')
+                return False
+            return True
+        xml = self._dump_domain_xml(vm_name)
+        if xml is None:
+            return False
+        domain = ET.fromstring(xml)
+        identifier = id_file.read_text().strip()
+        if domain.findtext('name') not in owned_names or domain.findtext('uuid') != identifier:
+            Log.error('Exchange UUID/name differs from the loaded instance; refusing removal')
+            return False
+        for disk in domain.findall('./devices/disk'):
+            if disk.get('device') != 'disk' or disk.find('readonly') is not None:
+                continue
+            source = disk.find('source')
+            path = None if source is None else source.get('file')
+            if (not path or Path(path).resolve().parent != self.STORAGE_POOL_PATH
+                    or not any(Path(path).name.startswith(name + '.') for name in owned_names)):
+                Log.error('Exchange has an unexpected writable disk; review ownership before removal')
+                return False
+        Log.info(f'Removing only {expected_name}; existing AD objects/schema are retained')
+        # No force halt or full-lab lifecycle: a failed graceful halt keeps the
+        # extension enabled, preserving its provider definition for recovery.
+        if not self.command.run_vagrant(['halt', vm_name], self.path):
+            return False
+        state = self._virsh(['domstate', identifier])
+        if state is None or state.returncode != 0 or state.stdout.strip() != 'shut off':
+            Log.error('Exchange is not verified stopped; refusing destruction')
+            return False
+        # Keep publisher backing images and shared cleanup candidates. Only
+        # Vagrant's own VM volumes are removed, not the broad image-cleanup list.
+        if not self._detach_external_virtio_iso(vm_name):
+            return False
+        if not self.command.run_vagrant(['destroy', vm_name], self.path):
+            return False
+        remaining = self._virsh(['list', '--all', '--uuid'])
+        if remaining is None or remaining.returncode != 0 or identifier in remaining.stdout.splitlines():
+            Log.error('Exchange removal could not be verified; extension remains enabled')
+            return False
+        if id_file.exists():
+            return False
+        shutil.rmtree(self._state_dir(vm_name), ignore_errors=True)
+        return True
+
     def start(self):
+        if not self._preflight_exchange_media():
+            return False
         if not self.command.refresh_libvirt_pool():
             return False
         machine_names = self._machine_names()
         return machine_names is not None and self._up_in_batches(machine_names)
 
     def start_vm(self, vm_name):
+        if not self._preflight_exchange_media(vm_name):
+            return False
         if not self.command.refresh_libvirt_pool():
             return False
         if not self.tune_storage(vm_name):
@@ -836,3 +936,16 @@ class LibvirtProvider(VagrantProvider):
         return self.command.run_vagrant(
             ["up", vm_name, "--provider=libvirt"], self.path
         )
+
+    def _preflight_exchange_media(self, vm_name=None):
+        try:
+            exchange_vm = self.lab_name + '-SRV01'
+            if vm_name is not None and vm_name != exchange_vm:
+                return True
+            vagrantfile = (Path(self.path) / 'Vagrantfile').read_text()
+            if 'exchange_box[:exchange_iso] =' in vagrantfile and not exchange_media_completed(self.path, exchange_vm):
+                prepare_exchange_media()
+            return True
+        except (OSError, RuntimeError, urllib.error.URLError) as error:
+            Log.error(f'Exchange CD-ROM preparation failed: {error}')
+            return False

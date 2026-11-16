@@ -1,0 +1,42 @@
+---
+- name: Prepare native forest domains while preserving the selected lab scenario
+  block:
+    - name: Refuse overlapping Exchange Setup before changing lab SPN state
+      ansible.windows.win_powershell:
+        script: |
+          $Ansible.Changed = $false
+          if (@(Get-Process Setup,ExSetup -ErrorAction SilentlyContinue).Count -gt 0) {
+              throw 'Exchange Setup is already running; refusing overlapping preparation'
+          }
+
+    - name: Journal and temporarily suspend only the conflicting lab SPN
+      ansible.windows.win_powershell:
+        script: "{{ lookup('file', 'Protect-ExchangeLabSpn.ps1') }}"
+        parameters:
+          Action: Prepare
+          ChildDC: "{{ lab.hosts.dc02.hostname | lower }}.{{ lab.hosts.dc02.domain }}"
+          ChildDomain: "{{ lab.hosts.dc02.domain }}"
+          RootDomain: "{{ lab.hosts.dc01.domain }}"
+      when: exchange_lab_spn_guard
+
+    # A separate runas task obtains a fresh logon session, without the old CIFS ticket.
+    - name: Prepare all GOAD forest domains using native Exchange Setup
+      ansible.windows.win_shell: |
+        & "{{ exchange_setup_path }}" /IAcceptExchangeServerLicenseTerms /PrepareAllDomains
+        exit $LASTEXITCODE
+
+  always:
+    - name: Restore and verify the exact original lab SPN even if Setup failed
+      ansible.windows.win_powershell:
+        script: "{{ lookup('file', 'Protect-ExchangeLabSpn.ps1') }}"
+        parameters:
+          Action: Restore
+          ChildDC: "{{ lab.hosts.dc02.hostname | lower }}.{{ lab.hosts.dc02.domain }}"
+          ChildDomain: "{{ lab.hosts.dc02.domain }}"
+          RootDomain: "{{ lab.hosts.dc01.domain }}"
+      when: exchange_lab_spn_guard
+  vars:
+    ansible_become: true
+    ansible_become_method: runas
+    ansible_become_user: "{{ ludus_exchange_domain_username }}"
+    ansible_become_password: "{{ ludus_exchange_domain_password }}"
