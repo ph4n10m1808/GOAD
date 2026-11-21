@@ -135,7 +135,7 @@ virsh -c qemu:///system pool-start GOAD
 virsh -c qemu:///system pool-autostart GOAD
 ```
 
-Inspect an existing pool before running creation commands. The retired `migrate_goad_light_storage.py` refuses the now-identical source/target policy and must not be used as a reverse migration.
+Inspect an existing pool before running creation commands. The obsolete split-pool migration helper has been removed; relocating existing disks requires a separately reviewed migration plan.
 
 The pool target is validated before starting Vagrant; an incorrect target stops the operation. GOAD_LIBVIRT_STORAGE_POOL no longer overrides this fixed location. Existing VM disks are not automatically migrated.
 
