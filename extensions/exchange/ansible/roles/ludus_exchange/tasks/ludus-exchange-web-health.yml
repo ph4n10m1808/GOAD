@@ -1,0 +1,27 @@
+---
+- name: Repair missing Exchange web assembly configuration
+  ansible.windows.win_powershell:
+    script: "{{ lookup('file', 'Repair-ExchangeWebAssemblyConfig.ps1') }}"
+  register: exchange_web_assembly
+
+- name: Require OWA and ECP frontend health before completing Exchange provisioning
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      foreach ($application in @('owa', 'ecp')) {
+        # The loopback probe sends no credentials and uses the lab IIS certificate.
+        $status = curl.exe --noproxy '*' --insecure --silent --max-time 8 --output NUL --write-out '%{http_code}' "https://127.0.0.1/$application/healthcheck.htm"
+        if ($LASTEXITCODE -ne 0 -or $status -ne '200') {
+          throw "Exchange $application health endpoint returned $status"
+        }
+      }
+  register: exchange_frontend_health
+  until: exchange_frontend_health is succeeded
+  retries: 18
+  delay: 10
+
+- name: Clear pending IIS reload after both Exchange web applications pass health checks
+  ansible.windows.win_file:
+    path: "{{ exchange_web_assembly.result.pending_reload }}"
+    state: absent
+  when: (exchange_web_assembly.result | default({})).pending_reload is defined

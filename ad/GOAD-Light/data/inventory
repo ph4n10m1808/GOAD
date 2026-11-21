@@ -5,6 +5,10 @@ domain_name=GOAD-Light
 admin_user=administrator
 ; Root PDC uses external NTP; members retain the native domain hierarchy.
 goad_root_ntp_peers=0.pool.ntp.org,1.pool.ntp.org,2.pool.ntp.org
+; Explicit operator intent; response delegation remains separate.
+goad_soc_soar_enabled=true
+; Host-local Packetbeat protocol analysis on the AD NIC of all four guests supplements Zeek.
+goad_packetbeat_enabled=true
 
 force_dns_server=yes
 dns_server=1.1.1.1

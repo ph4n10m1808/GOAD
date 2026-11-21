@@ -39,12 +39,16 @@
   ansible.builtin.include_tasks: ludus-exchange-2019-install.yml
   when: ludus_os_version in ["2019", "2022"] and not exchange_installed.exists
 
+- name: Verify web applications before completing Exchange 2019 provisioning
+  ansible.builtin.include_tasks: ludus-exchange-web-health.yml
+  when: ludus_os_version in ["2019", "2022"]
+
+- name: Release Exchange 2019 installation media after web health passes
+  ansible.builtin.include_tasks: ludus-release-install-media.yml
+  when: ludus_os_version in ["2019", "2022"]
+
 - name: Create ad users mailbox
   ansible.builtin.include_tasks: ludus-create-mailbox.yml
-
-- name: Recover a pending CD-ROM eject for an already configured Exchange server
-  ansible.builtin.include_tasks: ludus-release-libvirt-media.yml
-  when: ludus_os_version in ["2019", "2022"] and exchange_installed.exists and (ludus_exchange_libvirt_media | default(false) | bool)
 
 - name: Setup internal dns adapter
   ansible.builtin.include_tasks: ludus-exchange-dns.yml

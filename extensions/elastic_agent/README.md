@@ -79,6 +79,11 @@ trong Fleet và log thực tế trong Discover để xác nhận toàn bộ đư
 Khi lệnh cài/enroll trả lỗi, Ansible hiển thị exit code cùng stdout/stderr đã
 lọc enrollment token; tham số lệnh gốc tiếp tục được che bằng `no_log`.
 
+Khi bật thu thập Packetbeat, role lưu dấu cần restart trước khi cập nhật
+`SOC_PACKETBEAT_INTERFACE` của service. Lần chạy lại xử lý dấu này kể cả khi
+registry đã có giá trị mong muốn. Dấu chỉ được xóa sau khi Agent và Fleet đều
+báo healthy. Kiểm tra dữ liệu Packetbeat mới để xác minh interface đang thu thập.
+
 `ansible/uninstall.yml` hỗ trợ gỡ agent và kiểm tra service đã mất. Nếu bật
 uninstall protection trong policy, cần xử lý bằng quy trình uninstall token
 của Elastic trước; extension không tự tắt bảo vệ.

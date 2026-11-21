@@ -20,6 +20,8 @@
 - name: Create or verify the two unprivileged SOC Active Directory identities
   ansible.windows.win_powershell:
     script: "{{ lookup('file', playbook_dir ~ '/../extensions/elastic_agent/ansible/roles/elastic_agent_windows/files/Initialize-SocAD-ServiceAccounts.ps1') }}"
+    parameters:
+      SoarEnabled: "{{ goad_soc_soar_enabled | default(false) | bool }}"
     sensitive_parameters:
       - name: SiemPassword
         value: "{{ soc_siem_initial_password }}"

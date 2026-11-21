@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][Security.SecureString]$SiemPassword,
     [Parameter(Mandatory=$true)][Security.SecureString]$SoarPassword,
+    [bool]$SoarEnabled = $false,
     [string]$RecoverCreatedAccountGuid
 )
 $ErrorActionPreference = 'Stop'
@@ -45,6 +46,7 @@ foreach ($legacy in @('soc-siem','soc-soar')) {
     }
 }
 foreach ($name in @('soc_siem','soc_soar')) {
+    $expectedEnabled = ($name -eq 'soc_siem') -or $SoarEnabled
     $description = if ($name -eq 'soc_siem') {'SOC SIEM read-only directory identity'} else {'SOC SOAR standby identity; response delegation not granted'}
     $secure = if ($name -eq 'soc_siem') { $SiemPassword } else { $SoarPassword }
     $plain = (New-Object Management.Automation.PSCredential('unused',$secure)).GetNetworkCredential().Password
@@ -84,7 +86,7 @@ foreach ($name in @('soc_siem','soc_soar')) {
         }
         New-ADUser -Name $name -SamAccountName $name -UserPrincipalName "$name@$($domain.DNSRoot)" `
             -Path "CN=Users,$($domain.DistinguishedName)" -Description $description `
-            -AccountPassword $secure -Enabled ($name -eq 'soc_siem') -ChangePasswordAtLogon $false -PasswordNeverExpires $false
+            -AccountPassword $secure -Enabled $expectedEnabled -ChangePasswordAtLogon $false -PasswordNeverExpires $false
         $Ansible.Changed = $true
         $account = Get-ADUser $name -Properties Description,MemberOf,PrimaryGroupID,Enabled,ObjectGUID,UserPrincipalName
         $record.object_guid = $account.ObjectGUID.ToString()
@@ -93,7 +95,7 @@ foreach ($name in @('soc_siem','soc_soar')) {
     if ($record.domain_sid -ne $domain.DomainSID.Value -or $account.PrimaryGroupID -ne 513 -or @($account.MemberOf).Count -ne 0) {
         throw "Unexpected domain or additional membership: $name"
     }
-    if ($account.Enabled -ne ($name -eq 'soc_siem')) { throw "Unexpected enabled state; no implicit change: $name" }
+    if ($account.Enabled -ne $expectedEnabled) { throw "Unexpected enabled state; no implicit change: $name" }
     $rows += [pscustomobject]@{name=$name; upn=$account.UserPrincipalName; dn=$account.DistinguishedName;
         object_guid=$account.ObjectGUID.ToString(); enabled=$account.Enabled; additional_groups=@($account.MemberOf);
         domain_sid=$domain.DomainSID.Value}

@@ -1,0 +1,27 @@
+---
+- name: Release host-native CD-ROM media
+  ansible.builtin.include_tasks: ludus-release-libvirt-media.yml
+  when: ludus_exchange_libvirt_media | default(false) | bool
+
+- name: Release the role-managed file-mounted installation ISO
+  when: not (ludus_exchange_libvirt_media | default(false) | bool)
+  vars:
+    exchange_managed_iso: "{{ ludus_exchange_iso_directory }}\\{{ ludus_exchange_iso_url.split('/') | last }}"
+  block:
+    - name: Inspect the managed Exchange ISO
+      ansible.windows.win_stat:
+        path: "{{ exchange_managed_iso }}"
+        get_checksum: false
+      register: exchange_managed_iso_stat
+
+    - name: Unmount the managed Exchange ISO
+      community.windows.win_disk_image:
+        image_path: "{{ exchange_managed_iso }}"
+        state: absent
+      when: exchange_managed_iso_stat.stat.isreg | default(false)
+
+    - name: Remove the managed Exchange ISO after it is unmounted
+      ansible.windows.win_file:
+        path: "{{ exchange_managed_iso }}"
+        state: absent
+      when: exchange_managed_iso_stat.stat.isreg | default(false)

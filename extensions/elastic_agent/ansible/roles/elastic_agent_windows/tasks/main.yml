@@ -141,11 +141,49 @@
       {{ elastic_agent_enroll_diagnostic | default('No stdout or stderr was returned.') }}
   when: elastic_agent_enroll.rc | default(0) != 0
 
+- name: Select the verified host-local AD adapter for optional AD-network capture
+  ansible.windows.win_powershell:
+    parameters:
+      AdAddress: '{{ ansible_host }}'
+      PendingRestart: '{{ elastic_agent_ca_dir }}\goad-packetbeat-restart.pending'
+    script: |
+      param([string]$AdAddress, [string]$PendingRestart)
+      $ErrorActionPreference='Stop'
+      $Ansible.Changed=$false
+      if ($env:COMPUTERNAME.ToLowerInvariant() -notin @('kingslanding','winterfell','castelblack','the-eyrie')) {return}
+      $addresses=@(Get-NetIPAddress -AddressFamily IPv4 -IPAddress $AdAddress)
+      if ($addresses.Count -ne 1) { throw 'Expected one existing AD interface' }
+      $adapter=Get-NetAdapter -InterfaceIndex $addresses[0].InterfaceIndex
+      $device='\Device\NPF_'+[string]$adapter.InterfaceGuid
+      $key='HKLM:\SYSTEM\CurrentControlSet\Services\Elastic Agent'
+      if (!(Test-Path $key)) { throw 'Existing Agent service is required' }
+      $before=@((Get-ItemProperty -LiteralPath $key -Name Environment -ErrorAction SilentlyContinue).Environment | Where-Object {$_})
+      $after=@($before | Where-Object {$_ -notlike 'SOC_PACKETBEAT_INTERFACE=*'})+@('SOC_PACKETBEAT_INTERFACE='+$device)
+      $Ansible.Changed=($before -join "`n") -cne ($after -join "`n")
+      if ($Ansible.Changed) {
+          $directory='C:\ProgramData\Elastic\config-recovery'
+          if (!(Test-Path $directory)) {[IO.Directory]::CreateDirectory($directory) | Out-Null}
+          $record=Join-Path $directory ('packetbeat-environment-'+[Guid]::NewGuid().ToString('N')+'.clixml')
+          @{Computer=$env:COMPUTERNAME;Environment=$before} | Export-Clixml -LiteralPath $record
+          [IO.File]::WriteAllText($PendingRestart, 'Elastic Agent restart pending')
+          New-ItemProperty -LiteralPath $key -Name Environment -PropertyType MultiString -Value $after -Force | Out-Null
+      }
+      $readback=@((Get-ItemProperty -LiteralPath $key -Name Environment).Environment)
+      if (($readback -join "`n") -cne ($after -join "`n")) {throw 'Service environment readback differs'}
+      $Ansible.Result=@{interface=$device;other_environment_preserved=$true}
+  when:
+    - goad_packetbeat_enabled | default(false) | bool
+
+- name: Read pending Packetbeat environment activation before starting the service
+  ansible.windows.win_stat:
+    path: '{{ elastic_agent_ca_dir }}\goad-packetbeat-restart.pending'
+  register: elastic_agent_packetbeat_restart
+
 - name: Ensure Elastic Agent service is running
   ansible.windows.win_service:
     name: Elastic Agent
     start_mode: auto
-    state: "{{ 'restarted' if elastic_agent_enroll is changed else 'started' }}"
+    state: "{{ 'restarted' if (elastic_agent_enroll is changed or elastic_agent_packetbeat_restart.stat.isreg | default(false)) else 'started' }}"
 
 - name: Verify local agent health
   ansible.windows.win_shell: |
@@ -161,6 +199,12 @@
   retries: 12
   delay: 10
   until: elastic_agent_health.rc == 0
+
+- name: Clear pending Packetbeat activation after the restarted service is healthy
+  ansible.windows.win_file:
+    path: '{{ elastic_agent_ca_dir }}\goad-packetbeat-restart.pending'
+    state: absent
+  when: elastic_agent_packetbeat_restart.stat.isreg | default(false)
 
 - name: Record successful enrollment without storing the token in the marker
   ansible.windows.win_copy:
