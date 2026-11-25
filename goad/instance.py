@@ -395,9 +395,9 @@ class LabInstance:
         credentials_dir = os.path.join(self.instance_path, '.soc-credentials')
         if not os.path.isdir(credentials_dir):
             return None
-        has_entries = any(os.scandir(credentials_dir))
-        if not has_entries:
-            return None
+        with os.scandir(credentials_dir) as entries:
+            if next(entries, None) is None:
+                return None
         from datetime import datetime, timezone
         timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         backup_root = os.path.join(GoadPath.get_project_path(), 'workspace', '.preserved-credentials')
