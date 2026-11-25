@@ -2,7 +2,7 @@ import shlex
 import sys
 import os
 from goad.command.cmd import Command
-from goad.provider.vagrant.storage import storage_pool_for_lab
+from goad.provider.vagrant.storage import storage_mount_root, storage_pool_for_lab
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -125,8 +125,9 @@ class LinuxCommand(Command):
         return True
 
     def _validate_libvirt_pool_path(self):
-        if self.libvirt_pool_name == 'GOAD' and not os.path.ismount('/mnt/SSD_DATA'):
-            Log.error('GOAD requires /mnt/SSD_DATA to be mounted')
+        mount_root = storage_mount_root()
+        if mount_root is not None and not os.path.ismount(str(mount_root)):
+            Log.error(f'{self.libvirt_pool_name} requires {mount_root} to be mounted')
             return False
         expected = str(self.libvirt_pool_path)
         try:
@@ -221,12 +222,42 @@ class LinuxCommand(Command):
             Log.error(f"An error occurred while running the command: {e}")
         return None
 
-    def run_docker_ansible(self, args, path, ansible_path, docker_command):
+    def run_docker_ansible(self, args, path, ansible_path, docker_command, instance_path=None):
         result = None
+        project_root = os.path.realpath(GoadPath.get_project_path())
+        volume_args = []
+        for subdir in ('ansible', 'ad', 'extensions'):
+            host_dir = os.path.join(project_root, subdir)
+            if os.path.isdir(host_dir):
+                volume_args.extend(['-v', f'{host_dir}:/goad/{subdir}'])
+        if instance_path:
+            resolved_instance = os.path.realpath(str(instance_path))
+            workspace_root = os.path.realpath(os.path.join(project_root, 'workspace'))
+            if os.path.commonpath([workspace_root, resolved_instance]) == workspace_root and resolved_instance != workspace_root:
+                rel_instance = os.path.relpath(resolved_instance, project_root)
+                volume_args.extend(['-v', f'{resolved_instance}:/goad/{rel_instance}'])
+        elif os.environ.get('GOAD_DOCKER_MOUNT_ALL_WORKSPACES') == '1':
+            workspace_root = os.path.join(project_root, 'workspace')
+            if os.path.isdir(workspace_root):
+                volume_args.extend(['-v', f'{workspace_root}:/goad/workspace'])
+        network_mode = os.environ.get('GOAD_DOCKER_NETWORK', 'host').strip() or 'host'
+        user_args = []
+        if os.environ.get('GOAD_DOCKER_AS_ROOT') != '1':
+            user_args = [
+                '--user', f'{os.getuid()}:{os.getgid()}',
+                '-e', 'HOME=/tmp',
+                '-e', 'ANSIBLE_LOCAL_TEMP=/tmp/.ansible/tmp',
+            ]
         try:
-            command = [*docker_command, 'run', '-ti', '--rm', '--network', 'host',
-                       '-h', 'goadansible', '-v', f'{GoadPath.get_project_path()}:/goad',
-                       '-w', str(ansible_path), 'goadansible', 'ansible-playbook', *shlex.split(args)]
+            command = [
+                *docker_command, 'run', '-ti', '--rm',
+                '--network', network_mode,
+                *user_args,
+                '-h', 'goadansible',
+                *volume_args,
+                '-w', str(ansible_path),
+                'goadansible', 'ansible-playbook', *shlex.split(args),
+            ]
             Log.cmd(shlex.join(command))
             result = subprocess.run(command, cwd=path, stderr=sys.stderr, stdout=sys.stdout, check=False)
         except subprocess.CalledProcessError as e:

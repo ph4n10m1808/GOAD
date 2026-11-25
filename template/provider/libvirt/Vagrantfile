@@ -1,12 +1,15 @@
 # All local GOAD labs and extension VMs use the operator-selected shared pool.
-goad_storage_pool = "GOAD"
-goad_storage_path = "/mnt/SSD_DATA/Virtualization/KVM/GOAD"
+goad_storage_pool = ENV['GOAD_STORAGE_POOL'].to_s.strip
+goad_storage_pool = 'GOAD' if goad_storage_pool.empty?
+goad_storage_path = ENV['GOAD_STORAGE_POOL_PATH'].to_s.strip
+goad_storage_mount_root = ENV.fetch('GOAD_STORAGE_MOUNT_ROOT', goad_storage_path.empty? ? '/mnt/SSD_DATA' : '').strip
+goad_storage_path = '/mnt/SSD_DATA/Virtualization/KVM/GOAD' if goad_storage_path.empty?
 
 # Validate storage for commands that create or restart guests.
 # Keep status, halt and destroy usable when the pool needs repair.
 if (ARGV & %w[up reload resume]).any?
-  if !system('mountpoint', '--quiet', '/mnt/SSD_DATA')
-    abort 'GOAD requires /mnt/SSD_DATA to be mounted.'
+  if !goad_storage_mount_root.empty? && !system('mountpoint', '--quiet', goad_storage_mount_root)
+    abort "#{goad_storage_pool} requires #{goad_storage_mount_root} to be mounted."
   end
   require 'open3'
   require 'rexml/document'
@@ -68,7 +71,7 @@ boxes.append(
       :box => "bento/ubuntu-22.04",
       :os => "linux",
       :cpus => 2,
-      :mem => 2000,
+      :mem => 2048,
       :forwarded_port => [ {:guest => 22, :host => 2210, :id => "ssh"} ]
     }
 )
@@ -169,8 +172,8 @@ boxes.append(
 
       target.vm.box_download_insecure = false
       target.vm.box = box[:box]
-      if box.has_key?(:box_version)
-        target.vm.box_version = box[:box_version]
+      if box[:box_version] && !box[:box_version].to_s.strip.empty?
+        target.vm.box_version = box[:box_version].to_s.strip
       end
 
       target.vm.synced_folder '.', '/vagrant', disabled: true

@@ -3,7 +3,9 @@ set -euo pipefail
 
 usage() {
   echo "Usage: $0 --lab <GOAD|GOAD-Light|GOAD-Mini|MINILAB|NHA|SCCM|DRACARYS> [--extension <name>]... [--dry-run]"
-  echo "Environment: GOAD_VAGRANT_HOME"
+  echo "Environment: GOAD_VAGRANT_HOME GOAD_STORAGE_POOL GOAD_STORAGE_POOL_PATH GOAD_STORAGE_MOUNT_ROOT"
+  echo "             GOAD_MAYFLY_WIN2019_VERSION GOAD_MAYFLY_WIN10_VERSION GOAD_BENTO_UBUNTU2204_VERSION"
+  echo "             GOAD_BOX_CHECKSUM GOAD_BOX_CHECKSUM_TYPE"
 }
 
 lab=""
@@ -56,10 +58,17 @@ if ! vagrant plugin list | grep -q '^vagrant-libvirt '; then
   exit 1
 fi
 
-pool_name="GOAD"
-expected_pool_path="/mnt/SSD_DATA/Virtualization/KVM/GOAD"
-if ! mountpoint --quiet /mnt/SSD_DATA; then
-  echo "GOAD requires /mnt/SSD_DATA to be mounted" >&2
+pool_name="${GOAD_STORAGE_POOL:-GOAD}"
+expected_pool_path="${GOAD_STORAGE_POOL_PATH:-/mnt/SSD_DATA/Virtualization/KVM/GOAD}"
+if [[ -v GOAD_STORAGE_MOUNT_ROOT ]]; then
+  mount_root="$GOAD_STORAGE_MOUNT_ROOT"
+elif [[ -n "${GOAD_STORAGE_POOL_PATH:-}" ]]; then
+  mount_root=""
+else
+  mount_root="/mnt/SSD_DATA"
+fi
+if [[ -n "$mount_root" ]] && ! mountpoint --quiet "$mount_root"; then
+  echo "$pool_name requires $mount_root to be mounted" >&2
   exit 1
 fi
 if ! virsh -c qemu:///system pool-info "$pool_name" >/dev/null; then
@@ -99,11 +108,11 @@ case "$lab" in
     add_box StefanScherer/windows_2019 2021.05.15
     ;;
   MINILAB)
-    add_box mayfly/windows_server2019
-    add_box mayfly/windows10
+    add_box mayfly/windows_server2019 "${GOAD_MAYFLY_WIN2019_VERSION:-}"
+    add_box mayfly/windows10 "${GOAD_MAYFLY_WIN10_VERSION:-}"
     ;;
   NHA|SCCM)
-    add_box mayfly/windows_server2019
+    add_box mayfly/windows_server2019 "${GOAD_MAYFLY_WIN2019_VERSION:-}"
     ;;
   DRACARYS)
     add_box GOAD/WindowsServer2025 2026.02.09
@@ -121,10 +130,10 @@ for extension in "${extensions[@]}"; do
       add_box StefanScherer/windows_2019 2021.05.15
       ;;
     ws01)
-      add_box mayfly/windows10
+      add_box mayfly/windows10 "${GOAD_MAYFLY_WIN10_VERSION:-}"
       ;;
     elk|guacamole|lx01|wazuh)
-      add_box bento/ubuntu-22.04
+      add_box bento/ubuntu-22.04 "${GOAD_BENTO_UBUNTU2204_VERSION:-}"
       ;;
     *)
       echo "Unsupported extension: $extension" >&2
@@ -159,6 +168,11 @@ for entry in "${boxes[@]}"; do
     add_args=(box add "$name" --provider virtualbox)
     if [[ -n "$version" ]]; then
       add_args+=(--box-version "$version")
+    else
+      echo "WARNING: $name has no pinned box version; set GOAD_MAYFLY_*_VERSION / GOAD_BENTO_UBUNTU2204_VERSION for reproducible builds." >&2
+    fi
+    if [[ -n "${GOAD_BOX_CHECKSUM:-}" ]]; then
+      add_args+=(--checksum "$GOAD_BOX_CHECKSUM" --checksum-type "${GOAD_BOX_CHECKSUM_TYPE:-sha256}")
     fi
     if [[ "$dry_run" == true ]]; then
       printf 'Would run: vagrant'

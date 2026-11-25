@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shlex
 import ssl
+import stat
 import tempfile
 from urllib.parse import urlsplit
 
@@ -19,15 +20,43 @@ class ConfigurationError(ValueError):
 def parse_options(command):
     class Parser(argparse.ArgumentParser):
         def error(self, message):
-            raise ConfigurationError('Use elastic_agent [--ip HOST] [--token TOKEN] [--crt PATH] [--version VERSION].')
+            raise ConfigurationError(
+                'Use elastic_agent [--ip HOST] [--token-file PATH] [--crt PATH] [--version VERSION].'
+            )
 
     parser = Parser(add_help=False, allow_abbrev=False)
-    for flag in ('ip', 'token', 'crt', 'version'):
+    for flag in ('ip', 'token', 'token-file', 'crt', 'version'):
         parser.add_argument('--' + flag)
     try:
-        return vars(parser.parse_args(shlex.split(command)[1:]))
+        parsed = vars(parser.parse_args(shlex.split(command)[1:]))
     except ValueError:
         raise ConfigurationError('Invalid Elastic Agent options or quoting.') from None
+    if parsed.get('token') is not None and parsed.get('token_file') is not None:
+        raise ConfigurationError('Specify either --token-file or --token, not both.')
+    return parsed
+
+
+def _read_token_file(path_value):
+    token_path = Path(path_value).expanduser()
+    try:
+        fd = os.open(token_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        if token_path.is_symlink():
+            raise ConfigurationError('The token file must be a regular non-symlink file.') from None
+        raise ConfigurationError('Cannot read the token file. Check its local path and permissions.') from None
+    try:
+        with os.fdopen(fd, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise ConfigurationError('The token file must be a regular non-symlink file.')
+            if info.st_mode & 0o077:
+                raise ConfigurationError('The token file must not be group- or world-accessible (chmod 600).')
+            token = stream.read().decode('utf-8').strip()
+    except (OSError, UnicodeError):
+        raise ConfigurationError('Cannot read the token file. Check its local path and permissions.') from None
+    if not token or '\n' in token or '\r' in token:
+        raise ConfigurationError('The token file must contain a single-line Fleet enrollment token.')
+    return token
 
 
 def validate_ca(pem):
@@ -98,11 +127,20 @@ def configure(instance_path, force=False, options=None):
         answer = input(f'{label}' + (f' [{default}]' if default else '') + ': ').strip()
         return answer or default
 
+    if options.get('token') is not None and options.get('token_file') is not None:
+        raise ConfigurationError('Specify either --token-file or --token, not both.')
+    if options.get('token_file') is not None:
+        enrollment_token = _read_token_file(options['token_file'])
+    elif options.get('token') is not None:
+        enrollment_token = options['token']
+    else:
+        enrollment_token = getpass.getpass(
+            'Fleet enrollment token (hidden; blank keeps saved token): '
+        ).strip() or previous.get('elastic_agent_enrollment_token', '')
+
     values = {
         'elastic_agent_fleet_url': ask('Fleet Server IP/hostname or HTTPS URL', 'elastic_agent_fleet_url', 'ip'),
-        'elastic_agent_enrollment_token': options.get('token') if options.get('token') is not None else getpass.getpass(
-            'Fleet enrollment token (hidden; blank keeps saved token): '
-        ).strip() or previous.get('elastic_agent_enrollment_token', ''),
+        'elastic_agent_enrollment_token': enrollment_token,
         'elastic_agent_version': ask('Elastic Agent version', 'elastic_agent_version', 'version', '9.5.6'),
     }
     crt = options.get('crt')
