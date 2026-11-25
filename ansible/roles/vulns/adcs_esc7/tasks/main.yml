@@ -2,14 +2,27 @@
 - name: Install module PSPKI if absent
   ansible.windows.win_powershell:
     script: |
+      [CmdletBinding()]
+      param([string]$RequiredVersion)
       $ErrorActionPreference = 'Stop'
       $Ansible.Changed = $false
       # ADCSAdministration exports overlapping template commands; keep both modules installed.
-      if (-not (Get-Module -ListAvailable -Name PSPKI)) {
-          Install-Module -Name PSPKI -Repository PSGallery -Scope AllUsers -Force -AllowClobber -ErrorAction Stop
+      if (-not (Get-Module -ListAvailable -Name PSPKI | Where-Object { -not $RequiredVersion -or $_.Version.ToString() -eq $RequiredVersion })) {
+          $installParams = @{
+              Name = 'PSPKI'
+              Repository = 'PSGallery'
+              Scope = 'AllUsers'
+              Force = $true
+              AllowClobber = $true
+              ErrorAction = 'Stop'
+          }
+          if ($RequiredVersion) { $installParams.RequiredVersion = $RequiredVersion }
+          Install-Module @installParams
           $Ansible.Changed = $true
       }
       if (-not (Get-Module -ListAvailable -Name PSPKI)) { throw 'PSPKI is not available after installation' }
+    parameters:
+      RequiredVersion: "{{ adcs_esc7_pspki_version | default('4.3.0') }}"
     error_action: stop
 
 - name: Grant and verify ManageCA rights on the selected CA

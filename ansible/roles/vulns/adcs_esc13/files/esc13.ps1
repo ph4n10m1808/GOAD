@@ -58,8 +58,8 @@ $TemplateOIDPath = "CN=OID,CN=Public Key Services,CN=Services,$ConfigNC"
 $ESC13Template = "CN=$esc13templateName,CN=Certificate Templates,CN=Public Key Services,CN=Services,$ConfigNC"
 $adObject = Get-ADObject -Identity $ESC13Template -Properties msPKI-Certificate-Policy
 $group = Get-ADGroup -Identity $esc13group -Properties Members
-if ([string]$group.GroupScope -ne 'Universal' -or [string]$group.GroupCategory -ne 'Security' -or @($group.Members).Count -gt 0) {
-    throw 'ESC13 requires an empty Universal Security group'
+if ([string]$group.GroupScope -ne 'Universal' -or [string]$group.GroupCategory -ne 'Security') {
+    throw 'ESC13 requires a Universal Security group'
 }
 $existing = @(Get-ADObject -SearchBase $TemplateOIDPath -SearchScope OneLevel -Filter {DisplayName -eq $IssuanceName} -Properties msPKI-Cert-Template-OID,msDS-OIDToGroupLink,flags)
 if ($existing.Count -gt 1) { throw 'Ambiguous ESC13 issuance policies; preserving existing state' }
@@ -79,12 +79,18 @@ if ([string]::IsNullOrWhiteSpace($oidValue) -or ([int]$policy.flags -band 2) -eq
 $link = [string]$policy.'msDS-OIDToGroupLink'
 if ($link -and $link -ne $group.DistinguishedName) { throw 'Existing ESC13 policy links another group; preserving it' }
 if (-not $link) {
+    if (@($group.Members).Count -gt 0) {
+        throw 'ESC13 requires an empty Universal Security group when creating msDS-OIDToGroupLink'
+    }
     Set-ADObject -Identity $policy.DistinguishedName -Replace @{'msDS-OIDToGroupLink'=$group.DistinguishedName}
     $changed = $true
 }
+$legacyStaleOid = '1.3.6.1.4.1.311.21.8.16735922.7437492.10570883.2539024.15756463.185.9025784.11813639'
 $policies = @($adObject.'msPKI-Certificate-Policy' | ForEach-Object {[string]$_})
-if ($oidValue -notin $policies) {
-    Set-ADObject -Identity $adObject.DistinguishedName -Replace @{'msPKI-Certificate-Policy'=[string[]]@($policies + $oidValue)}
+$cleanPolicies = @($policies | Where-Object { $_ -and $_ -ne $legacyStaleOid })
+if ($oidValue -notin $cleanPolicies -or $cleanPolicies.Count -ne $policies.Count) {
+    $targetPolicies = if ($oidValue -in $cleanPolicies) { [string[]]$cleanPolicies } else { [string[]]@($cleanPolicies + $oidValue) }
+    Set-ADObject -Identity $adObject.DistinguishedName -Replace @{'msPKI-Certificate-Policy'=$targetPolicies}
     $changed = $true
 }
 $verifiedPolicy = Get-ADObject -Identity $policy.DistinguishedName -Properties msDS-OIDToGroupLink
