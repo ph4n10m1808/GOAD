@@ -192,6 +192,9 @@ class GoadAuditFixesTest(unittest.TestCase):
         self.assertIn('CN=Microsoft Corporation', sysmon_tasks)
         self.assertIn('sysmon_archive_checksum', sysmon_tasks)
 
+        esc7 = (ROOT / 'ansible/roles/vulns/adcs_esc7/tasks/main.yml').read_text()
+        self.assertIn('RequiredVersion', esc7)
+
         mssql_audit = (ROOT / 'ansible/roles/mssql/tasks/audit.yml').read_text()
         self.assertIn('mssql_audit_batch_completed', mssql_audit)
 
@@ -208,6 +211,21 @@ class GoadAuditFixesTest(unittest.TestCase):
         laps_perm = (ROOT / 'ansible/roles/laps/permissions/tasks/main.yml').read_text()
         self.assertNotIn('win_shell:', laps_perm)
         self.assertIn('AllowedPrincipal', laps_perm)
+
+        esc13_ps1 = (ROOT / 'ansible/roles/vulns/adcs_esc13/files/esc13.ps1').read_text()
+        self.assertIn('if (-not $link)', esc13_ps1)
+        self.assertIn('$legacyStaleOid', esc13_ps1)
+
+        for rel in (
+            'ansible/roles/adcs_templates/files/ESC13.json',
+            'ad/GOAD-Light/files/dc01/templates/ESC13.json',
+        ):
+            data = json.loads((ROOT / rel).read_text(encoding='utf-8'))
+            self.assertEqual(
+                data['msPKI-Cert-Template-OID'],
+                '1.3.6.1.4.1.311.21.8.16735922.7437492.10570883.2539024.15756463.185.9025784.11813640',
+            )
+            self.assertNotIn('msPKI-Certificate-Policy', data)
 
         dracarys_inv = (ROOT / 'ad/DRACARYS/providers/libvirt/inventory').read_text()
         self.assertIn('StrictHostKeyChecking=accept-new', dracarys_inv)
