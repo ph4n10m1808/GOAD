@@ -59,7 +59,13 @@ class DockerAnsibleProvisionerCmd(Ansible):
             ansible_path = '/goad/ansible'
         while not run_complete:
             nb_try += 1
-            run_complete = self.command.run_docker_ansible(command, GoadPath.get_project_path(), ansible_path, self.docker_command)
+            run_complete = self.command.run_docker_ansible(
+                command,
+                GoadPath.get_project_path(),
+                ansible_path,
+                self.docker_command,
+                instance_path=getattr(self, 'instance_path', None),
+            )
             if not run_complete and nb_try > tries:
                 Log.error('3 fails abort.')
                 break

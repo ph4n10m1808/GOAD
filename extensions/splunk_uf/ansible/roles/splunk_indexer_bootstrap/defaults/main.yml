@@ -14,7 +14,7 @@ splunk_indexer_admin_password: >-
   {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_INDEXER_PASSWORD') }}
 splunk_indexer_verify_tls: >-
   {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_VERIFY_TLS')
-     | default('false', true) | bool }}
+     | default('true', true) | bool }}
 splunk_indexer_auto_configure: >-
   {{ lookup('ansible.builtin.env', 'GOAD_SPLUNK_AUTO_CONFIGURE_INDEXER')
      | default((splunk_indexer_admin_password | length > 0), true) | bool }}

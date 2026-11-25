@@ -51,9 +51,11 @@ class StoragePathTest(unittest.TestCase):
             run.assert_not_called()
 
     def test_wrong_pool_prevents_refresh(self):
-        with patch('goad.command.linux.subprocess.run', return_value=SimpleNamespace(
-            returncode=0, stdout='<pool><target><path>/wrong</path></target></pool>'
-        )) as run:
+        with patch('goad.command.linux.os.path.ismount', return_value=True), patch(
+            'goad.command.linux.subprocess.run', return_value=SimpleNamespace(
+                returncode=0, stdout='<pool><target><path>/wrong</path></target></pool>'
+            )
+        ) as run:
             self.assertFalse(LinuxCommand().refresh_libvirt_pool())
             self.assertEqual(run.call_count, 1)
 

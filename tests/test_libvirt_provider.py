@@ -153,7 +153,7 @@ class LibvirtProviderTest(unittest.TestCase):
             self.assertNotIn("VAGRANT_NO_PARALLEL", rendered)
             self.assertIn("libvirt.storage_pool_name = goad_storage_pool", rendered)
             self.assertIn("libvirt.snapshot_pool_name = goad_storage_pool", rendered)
-            self.assertIn('goad_storage_pool = "GOAD"', rendered)
+            self.assertIn("goad_storage_pool = 'GOAD' if goad_storage_pool.empty?", rendered)
             self.assertIn('box[:name].start_with?("#{lab_name}-") ? "" : "#{lab_name}-"', rendered)
             self.assertNotIn("GOAD_LIBVIRT_COMPATIBILITY", rendered)
             self.assertIn("GOAD_VIRTIO_WIN_ISO", rendered)

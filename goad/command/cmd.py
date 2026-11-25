@@ -243,7 +243,7 @@ class Command:
             return False
         return result.returncode == 0
 
-    def run_docker_ansible(self, args, path, ansible_path, docker_command):
+    def run_docker_ansible(self, args, path, ansible_path, docker_command, instance_path=None):
         # Linux only
         pass
 
