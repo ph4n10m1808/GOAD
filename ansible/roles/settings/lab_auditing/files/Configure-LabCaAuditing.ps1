@@ -19,12 +19,15 @@ if (($oldFlags -band 0x200000) -eq 0) {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot configure template audit flag' }
     $Ansible.Changed = $true
 }
+# Restart CertSvc only when AuditFilter or EditFlags actually changed.
 if ($Ansible.Changed) { Restart-Service CertSvc -ErrorAction Stop }
 $service = Get-Service CertSvc
 $service.WaitForStatus('Running', [TimeSpan]::FromSeconds(120))
 $audit = [int](Get-ItemProperty $caPath -Name AuditFilter).AuditFilter
 $flags = [int](Get-ItemProperty $policyPath -Name EditFlags).EditFlags
-if ($audit -ne ($oldAudit -bor 127) -or $flags -ne ($oldFlags -bor 0x200000)) {
+if (($audit -band 127) -ne 127 -or ($flags -band 0x200000) -eq 0 -or
+    ($audit -band (-bnot 127)) -ne ($oldAudit -band (-bnot 127)) -or
+    ($flags -band (-bnot 0x200000)) -ne ($oldFlags -band (-bnot 0x200000))) {
     throw 'CA audit readback differs or unrelated flags changed'
 }
 [pscustomobject]@{ca=$active;audit_filter=$audit;template_audit=$true;existing_policy_flags_preserved=$true}

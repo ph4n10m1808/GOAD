@@ -14,7 +14,7 @@ boxes.append(
       :box_version => "202401.31.0",
       :os => "linux",
       :cpus => 2,
-      :mem => 2000,
+      :mem => 2048,
       :forwarded_port => [ {:guest => 22, :host => 2210, :id => "ssh"} ]
     }
 )

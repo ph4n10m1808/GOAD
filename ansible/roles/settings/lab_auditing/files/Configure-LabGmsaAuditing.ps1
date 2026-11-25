@@ -1,8 +1,21 @@
-param([Parameter(Mandatory=$true)][string]$AccountName)
+param(
+    [Parameter(Mandatory=$true)][string]$AccountName,
+    [int]$MaxAttempts = 12,
+    [int]$RetryDelaySeconds = 5
+)
 $ErrorActionPreference = 'Stop'
 Import-Module ActiveDirectory -ErrorAction Stop
 $Ansible.Changed = $false
-$account = Get-ADServiceAccount -Server $env:COMPUTERNAME -Identity $AccountName
+$account = $null
+for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+        $account = Get-ADServiceAccount -Server $env:COMPUTERNAME -Identity $AccountName -ErrorAction Stop
+        break
+    } catch {
+        if ($attempt -ge $MaxAttempts) { throw }
+        Start-Sleep -Seconds $RetryDelaySeconds
+    }
+}
 $schema = (Get-ADRootDSE -Server $env:COMPUTERNAME).schemaNamingContext
 $attribute = @(Get-ADObject -Server $env:COMPUTERNAME -SearchBase $schema -LDAPFilter '(lDAPDisplayName=msDS-ManagedPassword)' -Properties schemaIDGUID)
 if ($attribute.Count -ne 1) { throw 'Cannot identify the managed-password schema attribute' }

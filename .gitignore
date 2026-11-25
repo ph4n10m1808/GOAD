@@ -48,6 +48,4 @@ docs/olddocs/
 docs/mkdocs/site/
 scripts/archives/
 extensions/splunk_uf/.env
-tests/
-!tests/
-!tests/test_libvirt_provider.py
+.pytest_cache/

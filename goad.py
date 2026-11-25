@@ -305,7 +305,7 @@ class Goad(cmd.Cmd):
             self.lab_manager.get_lab(self.lab_manager.get_current_lab_name()).show_extensions()
 
     def do_install_extension(self, arg):
-        """Install an extension. Elastic: elastic_agent [--ip HOST] [--token TOKEN] [--crt PATH] [--version VERSION]."""
+        """Install an extension. Elastic: elastic_agent [--ip HOST] [--token-file PATH] [--crt PATH] [--version VERSION]."""
         if not arg.strip():
             Log.error('missing extension argument')
             Log.info(f'provision_extension <extension>')
@@ -602,6 +602,7 @@ def parse_args():
     parser.add_argument("-i", "--instance", help="use a specific instance (use default if not selected)", required=False)
     parser.add_argument("-e", "--extensions", help="extensions to use", action='append', required=False)
     parser.add_argument("--fleet-url", help="Fleet HTTPS URL for install_extension elastic_agent")
+    parser.add_argument("--fleet-token-file", help="Path to 0600 file containing the Fleet enrollment token")
     parser.add_argument("--fleet-ca", help="Local public CA bundle for install_extension elastic_agent")
     parser.add_argument("--agent-version", help="Exact Agent version for install_extension elastic_agent")
     parser.add_argument("-a", "--ansible_only", help="run only provisioning (ansible) on instance (-i) (for task install only)", required=False)
@@ -655,8 +656,8 @@ if __name__ == '__main__':
                     task_result = False
                 else:
                     task_result = goad.install_extensions(args.extensions, {
-                        'ip': args.fleet_url, 'crt': args.fleet_ca,
-                        'version': args.agent_version,
+                        'ip': args.fleet_url, 'token_file': args.fleet_token_file,
+                        'crt': args.fleet_ca, 'version': args.agent_version,
                     })
             elif args.task == 'check':
                 task_result = goad.do_check()

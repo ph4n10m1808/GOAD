@@ -1,4 +1,5 @@
+# Replace placeholder namespace/box and pin :box_version before instantiating a new lab.
 boxes = [
-  { :name => "DC01", :ip => "{{ip_range}}.30", :box => "your-namespace/windows-server-2019", :os => "windows", :cpus => 2, :mem => 4000},
-  { :name => "SRV01", :ip => "{{ip_range}}.31", :box => "your-namespace/windows-server-2019", :os => "windows", :cpus => 2, :mem => 4000}
+  { :name => "DC01", :ip => "{{ip_range}}.30", :box => "your-namespace/windows-server-2019", :box_version => "REPLACE_WITH_PINNED_BOX_VERSION", :os => "windows", :cpus => 2, :mem => 4096},
+  { :name => "SRV01", :ip => "{{ip_range}}.31", :box => "your-namespace/windows-server-2019", :box_version => "REPLACE_WITH_PINNED_BOX_VERSION", :os => "windows", :cpus => 2, :mem => 4096}
 ]

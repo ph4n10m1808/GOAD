@@ -56,9 +56,17 @@
           - IIS-Metabase
         state: present
 
+    - name: Download .NET Framework 4.8 installer
+      ansible.windows.win_get_url:
+        url: "{{ exchange_dotnet_install_path }}"
+        dest: "{{ ludus_exchange_iso_directory }}\\ndp48-x86-x64-allos-enu.exe"
+        checksum: "{{ exchange_dotnet_sha256 | default(omit, true) }}"
+        checksum_algorithm: sha256
+        force: false
+
     - name: Install .NET Framework
       win_package:
-        path: "{{ exchange_dotnet_install_path }}"
+        path: "{{ ludus_exchange_iso_directory }}\\ndp48-x86-x64-allos-enu.exe"
         arguments: /q /norestart
         state: present
       register: dotnet_install
@@ -71,9 +79,17 @@
       wait_for_connection:
         timeout: 300
 
+    - name: Download Visual C++ Redistributable 2012 installer
+      ansible.windows.win_get_url:
+        url: "{{ vcredist2012_install_path }}"
+        dest: "{{ ludus_exchange_iso_directory }}\\vcredist2012_x64.exe"
+        checksum: "{{ vcredist2012_sha256 | default(omit, true) }}"
+        checksum_algorithm: sha256
+        force: false
+
     - name: Install Visual C++ Redistributable for Visual Studio 2012
       ansible.windows.win_package:
-        path: "{{ vcredist2012_install_path }}"
+        path: "{{ ludus_exchange_iso_directory }}\\vcredist2012_x64.exe"
         # Burn wrappers can exit while an elevated child still holds the EXE.
         wait_for_children: true
         arguments: /quiet /norestart
@@ -85,9 +101,17 @@
         reboot_timeout: 1200
       when: vcredist2012_install.reboot_required | default(false)
 
+    - name: Download Visual C++ Redistributable 2013 installer
+      ansible.windows.win_get_url:
+        url: "{{ vcredist2013_install_path }}"
+        dest: "{{ ludus_exchange_iso_directory }}\\vcredist2013_x64.exe"
+        checksum: "{{ vcredist2013_sha256 | default(omit, true) }}"
+        checksum_algorithm: sha256
+        force: false
+
     - name: Install Visual C++ Redistributable for Visual Studio 2013
       win_package:
-        path: "{{ vcredist2013_install_path }}"
+        path: "{{ ludus_exchange_iso_directory }}\\vcredist2013_x64.exe"
         # Burn wrappers can exit while an elevated child still holds the EXE.
         wait_for_children: true
         arguments: /q /norestart
@@ -98,15 +122,31 @@
       win_reboot:
       when: vcredist2013_install.changed
 
+    - name: Download IIS URL Rewrite Module installer
+      ansible.windows.win_get_url:
+        url: "{{ rewrite_module_path }}"
+        dest: "{{ ludus_exchange_iso_directory }}\\rewrite_amd64_en-US.msi"
+        checksum: "{{ rewrite_module_sha256 | default(omit, true) }}"
+        checksum_algorithm: sha256
+        force: false
+
     - name: The IIS URL Rewrite Module is required with Exchange Server 2016 CU22 and Exchange Server 2019 CU11 or later
       win_package:
-        path: "{{ rewrite_module_path }}"
+        path: "{{ ludus_exchange_iso_directory }}\\rewrite_amd64_en-US.msi"
         arguments: /q /norestart
         state: present
 
+    - name: Download Unified Communications Managed API 4.0 Runtime installer
+      ansible.windows.win_get_url:
+        url: "{{ ucma_runtime_path }}"
+        dest: "{{ ludus_exchange_iso_directory }}\\UcmaRuntimeSetup.exe"
+        checksum: "{{ ucma_runtime_sha256 | default(omit, true) }}"
+        checksum_algorithm: sha256
+        force: false
+
     - name: Install Unified Communications Managed API 4.0 Runtime.
       win_package:
-        path: "{{ ucma_runtime_path }}"
+        path: "{{ ludus_exchange_iso_directory }}\\UcmaRuntimeSetup.exe"
         arguments: /q /norestart
         product_id: UCMA4
         state: present

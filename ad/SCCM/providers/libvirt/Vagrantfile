@@ -1,6 +1,7 @@
+# Pin exact box version via GOAD_MAYFLY_WIN2019_VERSION for reproducible builds.
 boxes = [
-  { :name => "SCCM-DC",     :ip => "{{ip_range}}.10", :box => "mayfly/windows_server2019", :cpus => 2, :mem => 4000, :os => "windows"},
-  { :name => "SCCM-MECM",   :ip => "{{ip_range}}.11", :box => "mayfly/windows_server2019", :cpus => 2, :mem => 4000, :os => "windows"},
-  { :name => "SCCM-MSSQL",  :ip => "{{ip_range}}.12", :box => "mayfly/windows_server2019", :cpus => 2, :mem => 4000, :os => "windows"},
-  { :name => "SCCM-CLIENT", :ip => "{{ip_range}}.13", :box => "mayfly/windows_server2019", :cpus => 2, :mem => 4000, :os => "windows"},
+  { :name => "SCCM-DC",     :ip => "{{ip_range}}.10", :box => "mayfly/windows_server2019", :box_version => ENV.fetch("GOAD_MAYFLY_WIN2019_VERSION", ""), :cpus => 2, :mem => 4096, :os => "windows"},
+  { :name => "SCCM-MECM",   :ip => "{{ip_range}}.11", :box => "mayfly/windows_server2019", :box_version => ENV.fetch("GOAD_MAYFLY_WIN2019_VERSION", ""), :cpus => 2, :mem => 4096, :os => "windows"},
+  { :name => "SCCM-MSSQL",  :ip => "{{ip_range}}.12", :box => "mayfly/windows_server2019", :box_version => ENV.fetch("GOAD_MAYFLY_WIN2019_VERSION", ""), :cpus => 2, :mem => 4096, :os => "windows"},
+  { :name => "SCCM-CLIENT", :ip => "{{ip_range}}.13", :box => "mayfly/windows_server2019", :box_version => ENV.fetch("GOAD_MAYFLY_WIN2019_VERSION", ""), :cpus => 2, :mem => 4096, :os => "windows"},
 ]
