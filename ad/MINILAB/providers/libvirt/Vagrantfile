@@ -1,4 +1,5 @@
+# Pin exact box versions via GOAD_MAYFLY_WIN2019_VERSION / GOAD_MAYFLY_WIN10_VERSION for reproducible builds.
 boxes = [
-  { :name => "DC01", :ip => "{{ip_range}}.30", :box => "mayfly/windows_server2019", :os => "windows", :cpus => 2, :mem => 4000},
-  { :name => "WS01", :ip => "{{ip_range}}.31", :box => "mayfly/windows10", :os => "windows", :cpus => 2, :mem => 4000}
+  { :name => "DC01", :ip => "{{ip_range}}.30", :box => "mayfly/windows_server2019", :box_version => ENV.fetch("GOAD_MAYFLY_WIN2019_VERSION", ""), :os => "windows", :cpus => 2, :mem => 4096},
+  { :name => "WS01", :ip => "{{ip_range}}.31", :box => "mayfly/windows10", :box_version => ENV.fetch("GOAD_MAYFLY_WIN10_VERSION", ""), :os => "windows", :cpus => 2, :mem => 4096}
 ]

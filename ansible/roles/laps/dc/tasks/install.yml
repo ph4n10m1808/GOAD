@@ -24,15 +24,38 @@
       Name: "{{ laps_path.split(',')[0].split('=')[1] }}"
       Path: "{{ ','.join(laps_path.split(',')[1:]) }}"
 
+- name: Download LAPS installer for domain controllers
+  ansible.windows.win_get_url:
+    url: "{{ laps_msi_url | default('https://download.microsoft.com/download/C/7/A/C7AAD914-A8A6-4904-88A1-29E657445D03/LAPS.x64.msi') }}"
+    dest: 'C:\Windows\Temp\LAPS.x64.msi'
+    checksum: "{{ laps_msi_sha256 | default(omit, true) }}"
+    checksum_algorithm: sha256
+    force: false
+  register: pri_laps_download
+  until: pri_laps_download is success
+  retries: 3
+  delay: 1
+
+- name: Verify Microsoft Authenticode signature on downloaded LAPS installer
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $sig = Get-AuthenticodeSignature -FilePath 'C:\Windows\Temp\LAPS.x64.msi'
+      if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch '(^|,\s*)CN=Microsoft Corporation(,|$)') {
+          throw "LAPS.x64.msi Authenticode verification failed: status=$($sig.Status)"
+      }
+    error_action: stop
+
 - name: Install LAPS Package on Servers
   ansible.windows.win_package:
     arguments: "ADDLOCAL=Management.PS,Management.ADMX ALLUSERS=1 /qn"
-    path: https://download.microsoft.com/download/C/7/A/C7AAD914-A8A6-4904-88A1-29E657445D03/LAPS.x64.msi
+    path: 'C:\Windows\Temp\LAPS.x64.msi'
     state: present
     creates_path: "%ProgramFiles%\\LAPS"
   register: pri_laps_install
   until: pri_laps_install is success
-  retries: 3  # Try 3 times just in case it failed to download the URL
+  retries: 3
   delay: 1
 
 - name: Reboot After Installing LAPS on Servers
@@ -229,16 +252,7 @@
   - name: PasswordAgeDays
     value: 30
 
-- name: Configure Expiration Protection on GPO
-  win_gpo_reg:
-    gpo: '{{ opt_laps_gpo_name }}'
-    name: PwdExpirationProtectionEnabled
-    path: 'HKLM\Software\Policies\Microsoft Services\AdmPwd'
-    state: present
-    type: dword
-    value: 1
-
-- name: Remove Configuration for Expiration Protection on GPO
+- name: Ensure Expiration Protection Policy is Absent on GPO
   win_gpo_reg:
     gpo: '{{ opt_laps_gpo_name }}'
     name: PwdExpirationProtectionEnabled

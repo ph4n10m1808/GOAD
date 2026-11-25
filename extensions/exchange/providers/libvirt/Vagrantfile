@@ -1,4 +1,4 @@
-exchange_box = { :name => "{{lab_name}}-SRV01", :ip => "{{ip_range}}.21", :box => "StefanScherer/windows_2019", :box_version => "2021.05.15", :os => "windows", :cpus => 4, :mem => 12000 }
+exchange_box = { :name => "{{lab_name}}-SRV01", :ip => "{{ip_range}}.21", :box => "StefanScherer/windows_2019", :box_version => "2021.05.15", :os => "windows", :cpus => 4, :mem => 12288 }
 exchange_box[:exchange_iso] = File.expand_path(ENV.fetch('GOAD_EXCHANGE_ISO', File.join(File.expand_path('../../../', __dir__), 'extensions/exchange/ansible/iso/resources/iso/ExchangeServer2019-x64-CU9.ISO')))
 if "{{lab_name}}" == "GOAD-Light"
   exchange_box.merge!(

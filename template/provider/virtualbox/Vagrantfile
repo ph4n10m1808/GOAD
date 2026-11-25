@@ -14,7 +14,7 @@ boxes.append(
       :box => "bento/ubuntu-22.04",
       :os => "linux",
       :cpus => 2,
-      :mem => 2000,
+      :mem => 2048,
       :forwarded_port => [ {:guest => 22, :host => 2210, :id => "ssh"} ]
     }
 )

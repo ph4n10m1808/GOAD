@@ -1,9 +1,19 @@
 - name: Add user or group permission to read Laps
-  win_shell: |
-    $ErrorActionPreference = 'Stop'
-    Import-Module AdmPwd.PS -ErrorAction Stop
-    Set-AdmPwdReadPasswordPermission -OrgUnit "{{laps_path}}" -AllowedPrincipals "{{item}}"
-  with_items: "{{laps_readers}}"
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding()]
+      param(
+          [Parameter(Mandatory=$true)][string]$OrgUnit,
+          [Parameter(Mandatory=$true)][string]$AllowedPrincipal
+      )
+      $ErrorActionPreference = 'Stop'
+      Import-Module AdmPwd.PS -ErrorAction Stop
+      Set-AdmPwdReadPasswordPermission -OrgUnit $OrgUnit -AllowedPrincipals $AllowedPrincipal | Out-Null
+    parameters:
+      OrgUnit: "{{ laps_path }}"
+      AllowedPrincipal: "{{ item }}"
+    error_action: stop
+  loop: "{{ laps_readers }}"
   when: laps_readers is defined
 
 - name: Audit legacy LAPS password access without changing delegated read permissions

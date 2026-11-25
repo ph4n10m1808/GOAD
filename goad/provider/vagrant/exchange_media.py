@@ -1,9 +1,11 @@
 """Host-side Exchange CD-ROM lifecycle; never starts or stops a guest."""
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import urllib.request
@@ -12,6 +14,24 @@ import xml.etree.ElementTree as ET
 ISO_NAME = 'ExchangeServer2019-x64-CU9.ISO'
 ISO_URL = 'https://download.microsoft.com/download/d/7/b/d7bcf78a-00d2-4a46-a3d2-7d506116bcd2/' + ISO_NAME
 PROJECT = Path(__file__).resolve().parents[3]
+EXPECTED_SHA256_ENV = 'GOAD_EXCHANGE_ISO_SHA256'
+
+
+def _expected_sha256():
+    configured = os.environ.get(EXPECTED_SHA256_ENV, '').strip().lower()
+    if not configured:
+        return None
+    if not re.fullmatch(r'[0-9a-f]{64}', configured):
+        raise RuntimeError(f'{EXPECTED_SHA256_ENV} must be a 64-character hexadecimal SHA-256 digest')
+    return configured
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest().lower()
 
 
 def media_path():
@@ -40,10 +60,13 @@ def prepare():
 
 
 def _prepare_locked(path):
+    expected_sha256 = _expected_sha256()
+    downloaded_sha256 = None
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = None
         try:
+            digest = hashlib.sha256()
             with tempfile.NamedTemporaryFile(dir=path.parent, suffix='.part', delete=False) as output:
                 tmp = Path(output.name)
                 with urllib.request.urlopen(ISO_URL, timeout=120) as response:
@@ -51,9 +74,15 @@ def _prepare_locked(path):
                     total = 0
                     while chunk := response.read(1024 * 1024):
                         output.write(chunk)
+                        digest.update(chunk)
                         total += len(chunk)
                 if not total or (expected and total != expected):
                     raise RuntimeError('Incomplete Exchange ISO download')
+                downloaded_sha256 = digest.hexdigest().lower()
+                if expected_sha256 and downloaded_sha256 != expected_sha256:
+                    raise RuntimeError(
+                        f'Exchange ISO SHA-256 mismatch: expected {expected_sha256}, got {downloaded_sha256}'
+                    )
                 output.flush()
                 os.fsync(output.fileno())
                 os.fchmod(output.fileno(), 0o644)
@@ -69,8 +98,15 @@ def _prepare_locked(path):
     # native libvirt enforces QEMU credentials and AppArmor/SELinux at launch.
     # Never change cache/parent permissions or ACLs here.
     try:
-        with path.open('rb') as source:
-            source.read(1)
+        if expected_sha256:
+            actual_sha256 = downloaded_sha256 or _sha256_file(path)
+            if actual_sha256 != expected_sha256:
+                raise RuntimeError(
+                    f'Cached Exchange ISO SHA-256 mismatch: expected {expected_sha256}, got {actual_sha256}'
+                )
+        else:
+            with path.open('rb') as source:
+                source.read(1)
     except PermissionError:
         raise RuntimeError(f'Exchange ISO is unreadable by the controller: {path}; review exact file/parent access, no permissions changed') from None
     return path

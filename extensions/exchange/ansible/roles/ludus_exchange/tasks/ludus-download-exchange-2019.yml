@@ -23,6 +23,7 @@
       ansible.builtin.get_url:
         url: "{{ ludus_exchange_iso_url }}"
         dest: "{{ exchange_iso_cache_path }}"
+        checksum: "{{ ('sha256:' ~ (ludus_exchange_iso_sha256 | trim | lower)) if (ludus_exchange_iso_sha256 | default('') | trim | length > 0) else omit }}"
         mode: "660"
       delegate_to: localhost
       when: not exchange_iso_check.stat.exists
@@ -51,7 +52,10 @@
       - exchange_iso_verified_cache.stat.isreg | default(false)
       - exchange_iso_verified_cache.stat.size | default(0) > 0
       - exchange_iso_verified_cache.stat.checksum is defined
-    fail_msg: Controller Exchange ISO cache is not a regular nonempty file with a calculated SHA-256
+      - >-
+        (ludus_exchange_iso_sha256 | default('') | trim | length == 0) or
+        (exchange_iso_verified_cache.stat.checksum | lower == (ludus_exchange_iso_sha256 | trim | lower))
+    fail_msg: Controller Exchange ISO cache is invalid or does not match ludus_exchange_iso_sha256
 
 - name: Copy the existing controller ISO only when the Windows copy differs
   ansible.windows.win_copy:

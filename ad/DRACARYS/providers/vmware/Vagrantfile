@@ -6,7 +6,7 @@ boxes =
     :box_version => "2026.02.09", 
     :os => "windows", 
     :cpus => 2, 
-    :mem => 3000
+    :mem => 3072
   },
   { :name => "DRACARYS-SRV01", 
     :ip => "{{ip_range}}.11", 
@@ -14,7 +14,7 @@ boxes =
     :box_version => "2026.02.09", 
     :os => "windows", 
     :cpus => 2, 
-    :mem => 3000
+    :mem => 3072
   },
   { :name => "DRACARYS-LX01",
     :ip => "{{ip_range}}.12",
@@ -22,7 +22,7 @@ boxes =
     :box_version => "202510.26.0",
     :os => "linux",
     :cpus => 2,
-    :mem => 3000,
+    :mem => 3072,
     :forwarded_port => [ {:guest => 22, :host => 2210, :id => "ssh"} ]
   }
 ]

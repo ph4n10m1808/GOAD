@@ -3,7 +3,10 @@
   ansible.windows.win_powershell:
     script: "{{ lookup('file', playbook_dir ~ '/../extensions/elastic_agent/ansible/roles/elastic_agent_windows/files/Configure-SocAuditing.ps1') }}"
   register: lab_windows_audit
-  changed_when: (lab_windows_audit.output | last | from_json).changed | length > 0
+  changed_when: >-
+    (lab_windows_audit.output | default([]) | length > 0) and
+    ((lab_windows_audit.output | last | trim).startswith('{')) and
+    (((lab_windows_audit.output | last | from_json).changed | default([])) | length > 0)
 
 - name: Configure local CA auditing while preserving the selected ESC conditions
   ansible.windows.win_powershell:
@@ -17,7 +20,10 @@
       VerifyLocalHttp: false
       CreateBackup: false
   register: lab_ca_iis_logging
-  changed_when: (lab_ca_iis_logging.output | last | from_json).changed | bool
+  changed_when: >-
+    (lab_ca_iis_logging.output | default([]) | length > 0) and
+    ((lab_ca_iis_logging.output | last | trim).startswith('{')) and
+    (((lab_ca_iis_logging.output | last | from_json).changed | default(false)) | bool)
   when: inventory_hostname in groups.get('adcs', [])
 
 - name: Audit domain replication rights without granting or restricting access

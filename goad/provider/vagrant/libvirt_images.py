@@ -14,8 +14,40 @@ class InspectionError(RuntimeError):
 
 
 class BaseImages:
-    def __init__(self, virsh):
+    _FORBIDDEN_INSPECTION_PREFIXES = (
+        Path('/etc'),
+        Path('/proc'),
+        Path('/sys'),
+        Path('/dev'),
+        Path('/boot'),
+        Path('/root'),
+    )
+
+    def __init__(self, virsh, allowed_inspection_roots=None):
         self.virsh = virsh
+        self.allowed_inspection_roots = (
+            None
+            if allowed_inspection_roots is None
+            else tuple(Path(os.path.realpath(str(root))) for root in allowed_inspection_roots)
+        )
+
+    def _validate_inspection_dir(self, directory):
+        resolved = Path(os.path.realpath(str(directory)))
+        if resolved == Path('/'):
+            raise InspectionError(f'Refusing temporary libvirt pool on filesystem root: {resolved}')
+        for forbidden in self._FORBIDDEN_INSPECTION_PREFIXES:
+            if resolved == forbidden or forbidden in resolved.parents:
+                raise InspectionError(f'Refusing temporary libvirt pool on system path: {resolved}')
+        if self.allowed_inspection_roots is not None:
+            allowed = any(
+                resolved == root or root in resolved.parents
+                for root in self.allowed_inspection_roots
+            )
+            if not allowed:
+                raise InspectionError(
+                    f'Refusing temporary libvirt pool outside allowed storage roots: {resolved}'
+                )
+        return resolved
 
     def output(self, *args):
         result = self.virsh(list(args))
@@ -102,11 +134,12 @@ class BaseImages:
                 except ET.ParseError as error:
                     raise InspectionError('Invalid volume XML') from error
             else:
+                pool_dir = self._validate_inspection_dir(Path(path).parent)
                 name = 'goad-inspect-' + uuid.uuid4().hex
                 pool = ET.Element('pool', type='dir')
                 ET.SubElement(pool, 'name').text = name
                 target = ET.SubElement(pool, 'target')
-                ET.SubElement(target, 'path').text = str(Path(path).parent)
+                ET.SubElement(target, 'path').text = str(pool_dir)
                 with tempfile.NamedTemporaryFile(mode='w', suffix='.xml') as definition:
                     definition.write(ET.tostring(pool, encoding='unicode'))
                     definition.flush()

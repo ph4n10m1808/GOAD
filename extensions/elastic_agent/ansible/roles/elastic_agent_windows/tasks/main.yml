@@ -78,8 +78,9 @@
         "{{ elastic_agent_staging_dir }}\{{ elastic_agent_archive_name }}\elastic-agent.exe"
         install --non-interactive
         --url={{ elastic_agent_fleet_url | ansible.windows.quote }}
-        --enrollment-token={{ elastic_agent_enrollment_token | ansible.windows.quote }}
         --certificate-authorities={{ elastic_agent_ca_path | ansible.windows.quote }}
+      environment:
+        FLEET_ENROLLMENT_TOKEN: '{{ elastic_agent_enrollment_token }}'
       register: elastic_agent_install_result
       changed_when: elastic_agent_install_result.rc == 0
       failed_when: false
@@ -110,8 +111,9 @@
   ansible.windows.win_command: >-
     "{{ elastic_agent_install_dir }}\elastic-agent.exe" enroll --force
     --url={{ elastic_agent_fleet_url | ansible.windows.quote }}
-    --enrollment-token={{ elastic_agent_enrollment_token | ansible.windows.quote }}
     --certificate-authorities={{ elastic_agent_ca_path | ansible.windows.quote }}
+  environment:
+    FLEET_ENROLLMENT_TOKEN: '{{ elastic_agent_enrollment_token }}'
   when:
     - elastic_agent_service.exists
     - elastic_agent_reenroll | bool or (elastic_agent_saved_hash.content | default('') | b64decode | trim) != elastic_agent_enrollment_hash

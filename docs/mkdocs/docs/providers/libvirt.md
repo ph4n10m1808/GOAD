@@ -12,16 +12,16 @@ Current GOAD-Light source keeps upstream VM labels (SRV02 IIS/MSSQL, optional SR
 
 Selected ESC2/3/4/6/7/9/10/11/13/15 conditions are prepared without uninstalling OS fixes. ESC3 includes both agent and target templates; ESC4 grants SEVENKINGDOMS\petyer.baelish control over only ESC4. NORTH gmsaDragon is available only to castelblack and has the selected lab GenericAll path to hodor; no IIS/SQL service identity is changed. DC01 hosts CA/template conditions; both DCs get native ESC10 KDC settings and DCs/SRV02 get Schannel UPN mapping. ESC13 links an empty Universal Security group to an issuance policy; that group has local Administrator rights only on SRV02. Patch-dependent ESC10/15 exploitability requires actual build/readback/testing. Existing ESC1 remains.
 
-The final Windows provisioning play enables local Windows/CA/template/LAPS/gMSA audit generation and then disables SRV02 Windows Update, after server features have installed. Auditing preserves weak permissions and flags. No Sysmon/Elastic Agent installation is implied by base provisioning; both are separate opt-in extensions. The operator starts installation manually; source validation is not runtime or exploit acceptance. The SOC repository keeps the complete inventory at deploy/deploy/docs/runbooks/goad-light-monitoring-log-inventory.txt.
+The final Windows provisioning play enables local Windows/CA/template/LAPS/gMSA audit generation and then disables SRV02 Windows Update, after server features have installed. Auditing preserves weak permissions and flags. No Sysmon/Elastic Agent installation is implied by base provisioning; both are separate opt-in extensions. The operator starts installation manually; source validation is not runtime or exploit acceptance. The SOC repository keeps the complete inventory at `docs/runbooks/goad-light-monitoring-log-inventory.txt`.
 
 ### Historical DC and manual install
 
 DC02 now uses publisher Windows Server 2019 box `2020.07.17`; DC01/SRV02/Exchange retain `2021.05.15`. The historical DC is selected for Zerologon, EFSRPC coercion and noPac lab prerequisites. The final install verifies DC role, build 17763 with revision below 1397, Netlogon/KDC, positive machine-account quota and disabled updates; a patched/wrong image fails instead of uninstalling fixes. DC01 Web Enrollment `/certsrv` deliberately accepts NTLM over its existing HTTP binding without EPA/SSL enforcement. These are isolated lab conditions, not exploit results or a production baseline. Zerologon/PetitPotam/noPac are not exclusive to Server 2016.
 
-Prepare the missing native box conversion before install. The previous goad.sh-only command is insufficient when this older libvirt box is absent. From this checkout, run the following single shell command and wait:
+Prepare the missing native box conversion before install. The previous goad.sh-only command is insufficient when this older libvirt box is absent. From this checkout (`<REPO_ROOT>/lab/goad`), run the following single shell command and wait:
 
 ```bash
-env PATH="/opt/miniconda3/bin:$PATH" GOAD_CONDA_ENV=goad GOAD_VAGRANT_HOME=/mnt/SSD_DATA/.vagrant.d bash -c 'cd /mnt/SSD_DATA_1/Code/01-Active-Projects/DATN/lab/goad && ./scripts/prepare_libvirt_boxes.sh --lab GOAD-Light --extension exchange && printf "y\n" | ./goad.sh -t install -l GOAD-Light -p libvirt -m local -ip 192.168.49 -e exchange'
+env PATH="/opt/miniconda3/bin:$PATH" GOAD_CONDA_ENV=goad GOAD_VAGRANT_HOME=/mnt/SSD_DATA/.vagrant.d bash -c 'cd "<REPO_ROOT>/lab/goad" && ./scripts/prepare_libvirt_boxes.sh --lab GOAD-Light --extension exchange && printf "y\n" | ./goad.sh -t install -l GOAD-Light -p libvirt -m local -ip 192.168.49 -e exchange'
 ```
 
 For an existing lab, keep the box-preparation step and add `-i INSTANCE_ID` to `goad.sh`. Use the full workspace folder ID from `workspace/<INSTANCE_ID>/instance.json`, not only its six-character prefix. `-t install -i INSTANCE_ID` reuses the saved lab, provider, addresses and extensions, then runs providing/base provisioning and the saved extensions; it does not create another instance. Example after preparing boxes:
@@ -137,7 +137,12 @@ virsh -c qemu:///system pool-autostart GOAD
 
 Inspect an existing pool before running creation commands. The obsolete split-pool migration helper has been removed; relocating existing disks requires a separately reviewed migration plan.
 
-The pool target is validated before starting Vagrant; an incorrect target stops the operation. GOAD_LIBVIRT_STORAGE_POOL no longer overrides this fixed location. Existing VM disks are not automatically migrated.
+The pool target is validated before starting Vagrant; an incorrect target stops the operation. To relocate the storage pool on another host, set `GOAD_STORAGE_POOL`, `GOAD_STORAGE_POOL_PATH`, `GOAD_STORAGE_MOUNT_ROOT` (empty string disables the mountpoint check when using a custom directory), and `GOAD_VAGRANT_HOME` consistently across `prepare_libvirt_boxes.sh`, `goad.sh`/`goad_docker.sh`, and `Vagrantfile`. Existing VM disks are not automatically migrated.
+
+## Network isolation and lab credential boundary
+
+- **SOC bridge isolation (`soc-dedicated-es-private` / `virbr50`):** GOAD-Light guests (`192.168.50.20`–`192.168.50.23`) are intentionally vulnerable Active Directory targets attached to `virbr50` solely for SOC telemetry ingestion. Before exposing the SOC host on that bridge, review and load the host firewall template at `template/provider/libvirt/soc-bridge-nftables.conf` (`sudo nft -c -f ...` then `sudo nft -f ...`) so lab guests can reach only the required telemetry ports (for example Fleet `8220/tcp` and Elasticsearch `9200/tcp`) on `192.168.50.1` and cannot pivot to host management services, Docker bridges, or the LAN.
+- **Inherited GOAD credentials and WinRM transport:** Default GOAD domain/local accounts (`vagrant`/`vagrant`, lab AD passwords) and `config.winrm.ssl_peer_verification = false` are intentional isolated-lab conventions for local Vagrant provisioning. Never bridge GOAD lab networks directly to untrusted networks or reuse lab credentials outside this isolated lab.
 
 GOAD refreshes the selected lab pool before starting Vagrant. This removes stale libvirt metadata left behind when a failed upload deletes a volume file.
 

@@ -173,7 +173,13 @@
       }
 
       # SQL2019 supports BATCH_COMPLETED_GROUP at database scope, not server scope.
-      # Audit master (administrative commands) and online writable user databases.
+      # SECURITY NOTE (lab-only): BATCH_COMPLETED_GROUP logs full SQL batch text to
+      # the Windows Application log (forwarded to SIEM), which may include literal
+      # credentials or secrets embedded in SQL statements. Set
+      # mssql_audit_batch_completed=false to keep only server-level security audits.
+      $enableBatchAudit = {{ (mssql_audit_batch_completed | default(true) | bool) | ternary('$true', '$false') }}
+      $batchOutput = ''
+      if ($enableBatchAudit) {
       $databaseAuditSql = @'
       SET NOCOUNT ON;
       DECLARE @db sysname, @statement nvarchar(max);
@@ -216,6 +222,7 @@
       '@
       $batchOutput = (& sqlcmd -S $pipe -E -b -Q $databaseAuditSql | Out-String).Trim()
       if ($LASTEXITCODE -ne 0) { throw ('SQL database batch audit failed: ' + $batchOutput) }
+      }
 
       $Ansible.Changed = ($before.Trim() -ne $after -or $batchOutput -match 'SOC_AUDIT_CHANGED')
       $Ansible.Result = @{
@@ -224,7 +231,8 @@
         audit_enabled = $true
         specification_enabled = $true
         required_server_action_groups = 11
-        statement_audit_scope = 'master and online writable user databases; tempdb/model/msdb excluded'
+        batch_completed_audit_enabled = $enableBatchAudit
+        statement_audit_scope = if ($enableBatchAudit) { 'master and online writable user databases; tempdb/model/msdb excluded' } else { 'disabled (server-level security audit only)' }
       }
   become: yes
   become_method: runas

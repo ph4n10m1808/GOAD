@@ -13,6 +13,8 @@
   ansible.windows.win_get_url:
     url: "{{ sysmon_download_url }}"
     dest: "{{ sysmon_archive_path }}"
+    checksum: "{{ sysmon_archive_checksum | default(omit, true) }}"
+    checksum_algorithm: sha256
   register: sysmon_download
   until: sysmon_download is succeeded
   retries: 3
@@ -30,8 +32,8 @@
     script: |
       $signature = Get-AuthenticodeSignature -LiteralPath '{{ sysmon_executable_path }}'
       if ($signature.Status -ne 'Valid' -or
-          $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
-          throw "Sysmon64.exe does not have a valid Microsoft signature"
+          $signature.SignerCertificate.Subject -notmatch '(^|,\s*)CN=Microsoft Corporation(,|$)') {
+          throw "Sysmon64.exe does not have a valid Microsoft Corporation Authenticode signature"
       }
       $Ansible.Changed = $false
   when: not sysmon_service.exists

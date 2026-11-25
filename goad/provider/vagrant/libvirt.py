@@ -589,6 +589,11 @@ class LibvirtProvider(VagrantProvider):
     def _cleanup_temporary_volume(self, vm_name, temporary_volume):
         if not temporary_volume:
             return
+        try:
+            validated_volume = self._validated_cleanup_path(temporary_volume)
+        except InspectionError as error:
+            Log.warning(f"Refusing to delete unvalidated temporary VirtIO volume: {error}")
+            return
         backup_path = self._state_dir(vm_name) / "pre-virtio-domain.xml"
         try:
             backup_root = ET.fromstring(backup_path.read_text())
@@ -596,15 +601,15 @@ class LibvirtProvider(VagrantProvider):
             if devices is not None:
                 for disk in list(devices.findall("disk")):
                     source = disk.find("source")
-                    if source is not None and source.get("file") == temporary_volume:
+                    if source is not None and source.get("file") in (temporary_volume, validated_volume):
                         devices.remove(disk)
             backup_path.write_text(ET.tostring(backup_root, encoding="unicode"))
         except (OSError, ET.ParseError) as e:
             Log.warning(f"Cannot make rollback XML independent of temporary disk: {e}")
             return
-        result = self._virsh(["vol-delete", temporary_volume])
+        result = self._virsh(["vol-delete", validated_volume])
         if result is None or result.returncode != 0:
-            Log.warning(f"Temporary VirtIO volume could not be deleted: {temporary_volume}")
+            Log.warning(f"Temporary VirtIO volume could not be deleted: {validated_volume}")
 
     def _rollback_storage(self, vm_name):
         self.command.run_vagrant(["halt", vm_name, "--force"], self.path)
@@ -739,8 +744,24 @@ class LibvirtProvider(VagrantProvider):
             return set()
         return self._read_cleanup_state(path, base_images=True)
 
+    def _allowed_inspection_roots(self):
+        return (
+            self.STORAGE_POOL_PATH,
+            self._virtio_iso().parent,
+            exchange_media_path().parent,
+            Path('/var/lib/libvirt/images'),
+        )
+
     def _make_disks_independent(self, machine_names):
-        images = BaseImages(self._virsh)
+        allowed_roots = (
+            self._allowed_inspection_roots()
+            if hasattr(self, '_allowed_inspection_roots')
+            else (self.STORAGE_POOL_PATH,)
+        )
+        images = BaseImages(
+            self._virsh,
+            allowed_inspection_roots=allowed_roots,
+        )
         try:
             candidates = self._saved_base_images()
             for vm_name in machine_names:
@@ -794,7 +815,15 @@ class LibvirtProvider(VagrantProvider):
         return self._make_disks_independent(machine_names)
 
     def _destroy_with_image_cleanup(self, machine_names, args):
-        images = BaseImages(self._virsh)
+        allowed_roots = (
+            self._allowed_inspection_roots()
+            if hasattr(self, '_allowed_inspection_roots')
+            else (self.STORAGE_POOL_PATH,)
+        )
+        images = BaseImages(
+            self._virsh,
+            allowed_inspection_roots=allowed_roots,
+        )
         state = Path(self.path) / '.goad' / 'disk-cleanup.json'
         candidates = set()
         try:

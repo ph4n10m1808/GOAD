@@ -5,6 +5,6 @@ boxes.append(
     :box => "mayfly/windows10",
     :os => "windows",
     :cpus => 2,
-    :mem => 4000
+    :mem => 4096
   }
 )

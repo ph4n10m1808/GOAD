@@ -70,7 +70,7 @@ foreach ($ace in $aces) {
 
     foreach ($ace_right in $ace_rights) {
         if ($ace_right -notin $valid_access_rights) {
-            $msg = "Invalid value for ace entry index $(raw_aces.Count) rights, '$ace_right'. Valid options $($valid_access_rights -join ", ")"
+            $msg = "Invalid value for ace entry index $($raw_aces.Count) rights, '$ace_right'. Valid options $($valid_access_rights -join ", ")"
             Fail-Json -obj $result -message $msg
         }
     }
@@ -79,7 +79,7 @@ foreach ($ace in $aces) {
     $access = switch($ace.access) {
         "allow" { [System.Security.AccessControl.AccessControlType]::Allow }
         "deny" { [System.Security.AccessControl.AccessControlType]::Deny }
-        default { Fail-Json -obj $result -message "Invalid value for ace entry index $($raw_aces.Count) access, '$access'. Valid options allow, deny" }
+        default { Fail-Json -obj $result -message "Invalid value for ace entry index $($raw_aces.Count) access, '$($ace.access)'. Valid options allow, deny" }
     }
 
     if ($ace.inheritance_type -notin $valid_inheritance_types) {
@@ -89,7 +89,7 @@ foreach ($ace in $aces) {
     $inheritance_type = [System.DirectoryServices.ActiveDirectorySecurityInheritance]$ace.inheritance_type
 
     $object_type = ConvertTo-SchemaGuid -Value $ace `
-        -Name "object_type" -Entry $raw_aces.Length `
+        -Name "object_type" -Entry $raw_aces.Count `
         -CommonParameters $common_ad_parameters
 
     $inherited_object_type = ConvertTo-SchemaGuid -Value $ace `
@@ -101,7 +101,7 @@ foreach ($ace in $aces) {
         $ace_rights,
         $access,
         $object_type,
-        $inheritance_type
+        $inheritance_type,
         $inherited_object_type
     )
     $raw_aces.Add($raw_ace) > $null

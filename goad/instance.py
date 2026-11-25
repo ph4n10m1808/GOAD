@@ -391,16 +391,58 @@ class LabInstance:
     def get_status(self):
         return self.status
 
+    def _preserve_soc_credentials(self):
+        credentials_dir = os.path.join(self.instance_path, '.soc-credentials')
+        if not os.path.isdir(credentials_dir):
+            return None
+        has_entries = any(os.scandir(credentials_dir))
+        if not has_entries:
+            return None
+        from datetime import datetime, timezone
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        backup_root = os.path.join(GoadPath.get_project_path(), 'workspace', '.preserved-credentials')
+        os.makedirs(backup_root, mode=0o700, exist_ok=True)
+        os.chmod(backup_root, 0o700)
+        backup_dir = os.path.join(backup_root, f'{self.instance_id}-{timestamp}')
+        suffix = 1
+        while os.path.exists(backup_dir):
+            backup_dir = os.path.join(backup_root, f'{self.instance_id}-{timestamp}-{suffix}')
+            suffix += 1
+        os.makedirs(backup_dir, mode=0o700, exist_ok=False)
+        target_dir = os.path.join(backup_dir, '.soc-credentials')
+        shutil.copytree(credentials_dir, target_dir, symlinks=False)
+        for root, dirs, files in os.walk(backup_dir):
+            os.chmod(root, 0o700)
+            for name in dirs:
+                os.chmod(os.path.join(root, name), 0o700)
+            for name in files:
+                os.chmod(os.path.join(root, name), 0o600)
+        return target_dir
+
     def delete_instance(self):
         if not os.path.isdir(self.instance_path):
             Log.error('Instance does not exist abort')
             return False
         Log.info(f'Instance id {self.instance_id} will be deleted.')
         Log.info(f'Instance folder {self.instance_path} will be deleted.')
+        if os.path.isdir(os.path.join(self.instance_path, '.soc-credentials')):
+            Log.warning(
+                'Instance contains .soc-credentials; a private backup will be preserved '
+                'under workspace/.preserved-credentials before deletion.'
+            )
         Log.warning(f'Are you sure ?')
         if Utils.confirm('(y/N)'):
             lab_destroyed = self.provider.destroy()
             if lab_destroyed:
+                try:
+                    preserved = self._preserve_soc_credentials()
+                except OSError as error:
+                    Log.error(
+                        f'Could not preserve .soc-credentials before deleting workspace: {error}'
+                    )
+                    return False
+                if preserved:
+                    Log.warning(f'Preserved .soc-credentials at {preserved}')
                 shutil.rmtree(self.instance_path, ignore_errors=False, onerror=None)
                 Log.success('instance deleted')
                 return True

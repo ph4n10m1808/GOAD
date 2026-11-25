@@ -7,8 +7,8 @@ pip_requirements="noansible_requirements.yml"
 docker_image="goadansible"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Use /mnt/ssd_data for vagrant data (boxes, etc.)
-export VAGRANT_HOME=/mnt/SSD_DATA/.vagrant.d
+# Default VAGRANT_HOME to the lab storage mount; override via GOAD_VAGRANT_HOME.
+export VAGRANT_HOME="${GOAD_VAGRANT_HOME:-/mnt/SSD_DATA/.vagrant.d}"
 
 cd "$script_dir"
 

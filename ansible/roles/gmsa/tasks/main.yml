@@ -14,7 +14,10 @@
       $keys = @(foreach ($key in (Get-KdsRootKey)) { $key })
       $Ansible.Changed = $keys.Count -eq 0
       if ($Ansible.Changed) {
-          # Preserve the existing isolated-lab backdate; replication is checked below.
+          # ISOLATED LAB ONLY: backdate the KDS root key by 10 hours so gMSA
+          # accounts can be provisioned immediately without waiting for the
+          # production 10-hour AD replication safety window. Do not reuse this
+          # setting in production Active Directory.
           Add-KdsRootKey -EffectiveTime (Get-Date).AddHours(-10) | Out-Null
           $keys = @(foreach ($key in (Get-KdsRootKey)) { $key })
       }
