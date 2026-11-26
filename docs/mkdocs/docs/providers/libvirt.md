@@ -1,5 +1,7 @@
 # Libvirt / KVM
 
+<a id="vm-names--16-november-2026"></a>
+
 ## VM names — 16 November 2026
 
 All libvirt labs and VM extensions use exactly one lab prefix plus the existing machine role: `GOAD-Light-DC01`, `GOAD-Light-DC02`, `GOAD-Light-SRV02`, and optional Exchange `GOAD-Light-SRV01`. No instance hash or second lab prefix is added. Bare keys are also prefixed once (`MINILAB-DC01`, `MINILAB-WS01`, `GOAD-ELK`); existing specialized SCCM roles and Linux/WS/extension labels are retained. Logical Vagrant machine keys stay unchanged. Only one same-name lab can coexist on a libvirt connection; native duplicate-name checks refuse a collision. Windows hostnames, AD identities, UUIDs and disk paths are unchanged.
